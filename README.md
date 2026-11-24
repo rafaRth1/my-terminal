@@ -51,6 +51,7 @@ cargo run --release -p app
 | `Ctrl+Shift+A` | Cambiar la cuenta de Claude de los paneles nuevos |
 | `Ctrl+Shift+F` | Buscar en la salida del panel enfocado (Enter: anterior, Shift+Enter: siguiente, Esc cierra) |
 | `Ctrl+Shift+K` | Buscar sesiones en la barra lateral (Enter abre la primera, Esc limpia) |
+| `Ctrl+Shift+G` | Mostrar / ocultar el panel de git |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Agrandar / achicar / restablecer la fuente de todos los paneles |
 | `Ctrl+clic` | Abrir la URL o la ruta `archivo:línea` bajo el ratón |
 | `Ctrl+Shift+C` | Copiar la selección |
@@ -99,6 +100,19 @@ salvo que la búsqueda tenga alguna.
 
 Abrir my-terminal cuando ya está abierto trae al frente la ventana existente
 en lugar de abrir otra (con `$XDG_RUNTIME_DIR` disponible).
+
+## Panel de git
+
+El botón de git de la barra de título (o `Ctrl+Shift+G`) abre a la derecha un
+panel con el repositorio del panel enfocado: la rama, cuántos commits va
+adelante (↑) o atrás (↓) de su remoto y los archivos cambiados, con su estado
+(`M` modificado, `A` agregado, `D` borrado, `R` renombrado, `U` en conflicto,
+`?` sin seguimiento) y las líneas agregadas y quitadas. Un clic en un archivo
+muestra su diff contra `HEAD` (un archivo nuevo aparece entero como agregado);
+**← Files** vuelve a la lista. Se actualiza cada 2 segundos mientras está
+abierto y con ⟳. Es de solo lectura: usa el `git` del sistema sin tomar
+bloqueos opcionales, así que no interfiere con un agente que esté usando git
+en el mismo repositorio.
 
 ## Configuración
 
