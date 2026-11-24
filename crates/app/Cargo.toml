@@ -1,0 +1,22 @@
+[package]
+name = "app"
+description = "Desktop UI: window, tabs, sidebar, terminal rendering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "my-terminal"
+path = "src/main.rs"
+
+[dependencies]
+term-core = { path = "../term-core" }
+agent-status = { path = "../agent-status" }
+gpui.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
