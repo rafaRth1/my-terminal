@@ -123,7 +123,7 @@ dura hasta cerrar la aplicación.
 ## Barra de agentes
 
 La fila de íconos al pie de la barra lateral muestra Claude Code, Codex,
-Gemini CLI, Qwen Code, OpenCode y Antigravity CLI (`agy`). Un punto verde
+Qwen Code, OpenCode y Antigravity CLI (`agy`). Un punto verde
 indica que la CLI tiene credenciales guardadas (punto gris: sesión cerrada); un
 ícono atenuado indica que no está en el `PATH`.
 
@@ -137,7 +137,7 @@ indica que la CLI tiene credenciales guardadas (punto gris: sesión cerrada); un
 my-terminal nunca lee ni guarda credenciales de los agentes: ejecuta el
 comando de estado de cada CLI (`claude auth status`, `codex login status`,
 `opencode auth list`) o comprueba que exista su archivo de credenciales
-(`~/.gemini/oauth_creds.json`, `~/.qwen/oauth_creds.json`). Antigravity CLI no
+(`~/.qwen/oauth_creds.json`). Antigravity CLI no
 tiene comando de estado, así que su ícono no muestra punto; inicia sesión en su
 primera ejecución. Los estados se comprueban al iniciar, cada 5 minutos y cada
 vez que se cierra una pestaña.
@@ -164,7 +164,7 @@ escritorio con `notify-send`.
 
 ## Sesiones guardadas
 
-Las sesiones de agentes (Claude Code, Codex, Gemini, ...) se guardan cada vez
+Las sesiones de agentes (Claude Code, Codex, Antigravity, ...) se guardan cada vez
 que cambian en `$XDG_STATE_HOME/my-terminal/sessions.json` (por defecto
 `~/.local/state/my-terminal/`, permisos 0600): título, carpeta, agente, cuenta
 y, para Claude Code, su id de sesión. Los shells sin agente no se guardan.
@@ -237,6 +237,37 @@ hooks existentes, sin reemplazarlos):
 ```
 
 Instalar el binario con `cargo install --path crates/agent-status`.
+
+### Otros agentes
+
+El mismo hook sirve para los demás CLIs; cada uno se registra agregando
+entradas, sin reemplazar las existentes:
+
+| Agente | Archivo | Eventos | Comando |
+|---|---|---|---|
+| Codex | `~/.codex/hooks.json` (mismo formato que Claude) | `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Stop`, `Interrupt`, `SessionEnd` | `my-terminal-hook` |
+| Qwen Code | `~/.qwen/settings.json`, clave `hooks` | `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Notification`, `Stop`, `StopFailure`, `SessionEnd` | `my-terminal-hook` |
+| Antigravity CLI | `~/.gemini/config/hooks.json`, un hook con nombre propio | `SessionStart`, `PreInvocation`, `PostToolUse`, `Stop` | `my-terminal-hook --agent agy` |
+| OpenCode | `~/.config/opencode/plugins/my-terminal.ts` (copiar `integrations/opencode/my-terminal.ts`) | plugin | — |
+
+En Antigravity, `SessionStart`, `PreInvocation` y `Stop` llevan la lista de
+comandos directamente; solo `PreToolUse` y `PostToolUse` usan grupos
+`{"matcher", "hooks"}` (se puede comprobar con `agy plugin validate`):
+
+```json
+{"my-terminal": {
+  "SessionStart":  [{"type": "command", "command": "my-terminal-hook --agent agy", "timeout": 5}],
+  "PreInvocation": [{"type": "command", "command": "my-terminal-hook --agent agy", "timeout": 5}],
+  "PostToolUse":   [{"matcher": "*", "hooks": [{"type": "command", "command": "my-terminal-hook --agent agy", "timeout": 5}]}],
+  "Stop":          [{"type": "command", "command": "my-terminal-hook --agent agy", "timeout": 5}]
+}}
+```
+
+Codex pide aprobar los hooks nuevos una vez con `/hooks`. Antigravity no tiene
+evento de "esperando" ni de fin de sesión: muestra trabajando y terminado, y
+el estado se borra cuando el agente deja de correr en el panel. Para
+Antigravity el hook responde `{}` (o `{"decision":"allow"}` en `Stop`, que deja
+terminar al agente), como exige su formato.
 
 ## Desarrollo
 
