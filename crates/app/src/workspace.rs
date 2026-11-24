@@ -21,8 +21,8 @@ use term_core::{Session, SessionConfig, TerminalSize};
 use crate::accounts::{self, Accounts, DEFAULT_ACCOUNT, PaneAccount, TOKEN_ENV};
 use crate::actions::{
     ClosePane, CloseTab, FindInTerminal, FocusNextPane, FocusPrevPane, FocusSearch, NewTab,
-    NextTab, PrevTab, SplitRight, SwitchAccount, ToggleGitPanel, ToggleSidebar, WORKSPACE_CONTEXT,
-    ZoomIn, ZoomOut, ZoomReset,
+    NextTab, PrevTab, SplitRight, SwitchAccount, ToggleGitPanel, TogglePalette, ToggleSidebar,
+    WORKSPACE_CONTEXT, ZoomIn, ZoomOut, ZoomReset,
 };
 use crate::decorations::{Rounding, WindowFrame};
 use crate::sidebar::{self, Filter, Item};
@@ -32,6 +32,7 @@ use crate::text_field::{TextField, TextFieldEvent};
 
 mod account_modal;
 mod agent_bar;
+mod command_palette;
 mod git_panel;
 mod menu;
 mod panes;
@@ -134,6 +135,8 @@ pub struct Workspace {
     settings_modal: Option<settings_modal::SettingsModal>,
     /// Open git panel.
     git_panel: Option<git_panel::GitPanel>,
+    /// Open command palette.
+    palette: Option<command_palette::CommandPalette>,
     /// Where sessions are saved; `None` without a home directory.
     saved_path: Option<PathBuf>,
     /// Last text written there, to skip writes when nothing changed.
@@ -207,6 +210,7 @@ impl Workspace {
             renaming: None,
             settings_modal: None,
             git_panel: None,
+            palette: None,
             saved_path: crate::saved::default_path(),
             last_saved: None,
             dormant: Vec::new(),
@@ -1208,6 +1212,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|_, _: &ZoomOut, window, cx| {
                 Self::zoom(Some(-1), window, cx);
             }))
+            .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
+                this.toggle_palette(window, cx);
+            }))
             .on_action(cx.listener(|this, _: &ToggleGitPanel, _, cx| {
                 this.toggle_git_panel(cx);
             }))
@@ -1242,7 +1249,8 @@ impl Render for Workspace {
             .when_some(self.render_agent_menu(cx), ParentElement::child)
             .when_some(self.render_session_menu(cx), ParentElement::child)
             .when_some(self.render_accounts(cx), ParentElement::child)
-            .when_some(self.render_settings(cx), ParentElement::child);
+            .when_some(self.render_settings(cx), ParentElement::child)
+            .when_some(self.render_palette(cx), ParentElement::child);
         self.frame.render(window, content)
     }
 }

@@ -72,7 +72,7 @@ impl Workspace {
         }
     }
 
-    fn run_agent_action(
+    pub(super) fn run_agent_action(
         &mut self,
         status: AgentStatus,
         click: Click,

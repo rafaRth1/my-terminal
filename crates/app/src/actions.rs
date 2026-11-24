@@ -24,6 +24,7 @@ actions!(
         ZoomOut,
         ZoomReset,
         ToggleGitPanel,
+        TogglePalette,
     ]
 );
 
@@ -33,9 +34,11 @@ pub const WORKSPACE_CONTEXT: &str = "Workspace";
 pub const ACCOUNT_MODAL_CONTEXT: &str = "AccountModal";
 /// Key context of the settings dialog.
 pub const SETTINGS_MODAL_CONTEXT: &str = "SettingsModal";
+/// Key context of the command palette.
+pub const COMMAND_PALETTE_CONTEXT: &str = "CommandPalette";
 /// Shortcuts apply in the workspace but not while the accounts dialog has
 /// focus: they would move focus to a terminal hidden behind it.
-const SHORTCUT_CONTEXT: &str = "Workspace && !AccountModal && !SettingsModal";
+const SHORTCUT_CONTEXT: &str = "Workspace && !AccountModal && !SettingsModal && !CommandPalette";
 
 /// Registers the default shortcuts.
 pub fn bind_default_keys(cx: &mut App) {
@@ -59,6 +62,7 @@ pub fn bind_default_keys(cx: &mut App) {
         KeyBinding::new("ctrl--", ZoomOut, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl-0", ZoomReset, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl-shift-g", ToggleGitPanel, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-shift-p", TogglePalette, Some(SHORTCUT_CONTEXT)),
     ]);
 }
 
@@ -86,6 +90,7 @@ mod tests {
     fn shortcuts_are_off_while_a_dialog_has_focus() {
         assert!(!matches(&["Workspace", "AccountModal"]));
         assert!(!matches(&[WORKSPACE_CONTEXT, SETTINGS_MODAL_CONTEXT]));
+        assert!(!matches(&[WORKSPACE_CONTEXT, COMMAND_PALETTE_CONTEXT]));
         assert!(!matches(&[]));
     }
 }
