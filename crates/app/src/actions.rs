@@ -23,6 +23,7 @@ actions!(
         ZoomIn,
         ZoomOut,
         ZoomReset,
+        ToggleGitPanel,
     ]
 );
 
@@ -57,6 +58,7 @@ pub fn bind_default_keys(cx: &mut App) {
         KeyBinding::new("ctrl-+", ZoomIn, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl--", ZoomOut, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl-0", ZoomReset, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-shift-g", ToggleGitPanel, Some(SHORTCUT_CONTEXT)),
     ]);
 }
 

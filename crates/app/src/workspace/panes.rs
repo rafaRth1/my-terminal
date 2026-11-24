@@ -100,6 +100,10 @@ impl Workspace {
             .flex_none()
             .h_full()
             .child(
+                pane_button("git", "ui/git.svg", "Git changes (Ctrl+Shift+G)")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_git_panel(cx))),
+            )
+            .child(
                 pane_button("settings", "ui/settings.svg", "Settings")
                     .on_click(cx.listener(|this, _, window, cx| this.open_settings(window, cx))),
             )

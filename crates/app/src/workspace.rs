@@ -21,8 +21,8 @@ use term_core::{Session, SessionConfig, TerminalSize};
 use crate::accounts::{self, Accounts, DEFAULT_ACCOUNT, PaneAccount, TOKEN_ENV};
 use crate::actions::{
     ClosePane, CloseTab, FindInTerminal, FocusNextPane, FocusPrevPane, FocusSearch, NewTab,
-    NextTab, PrevTab, SplitRight, SwitchAccount, ToggleSidebar, WORKSPACE_CONTEXT, ZoomIn, ZoomOut,
-    ZoomReset,
+    NextTab, PrevTab, SplitRight, SwitchAccount, ToggleGitPanel, ToggleSidebar, WORKSPACE_CONTEXT,
+    ZoomIn, ZoomOut, ZoomReset,
 };
 use crate::decorations::{Rounding, WindowFrame};
 use crate::sidebar::{self, Filter, Item};
@@ -32,6 +32,7 @@ use crate::text_field::{TextField, TextFieldEvent};
 
 mod account_modal;
 mod agent_bar;
+mod git_panel;
 mod menu;
 mod panes;
 mod rename;
@@ -131,6 +132,8 @@ pub struct Workspace {
     renaming: Option<rename::Renaming>,
     /// Open settings dialog.
     settings_modal: Option<settings_modal::SettingsModal>,
+    /// Open git panel.
+    git_panel: Option<git_panel::GitPanel>,
     /// Where sessions are saved; `None` without a home directory.
     saved_path: Option<PathBuf>,
     /// Last text written there, to skip writes when nothing changed.
@@ -203,6 +206,7 @@ impl Workspace {
             session_menu: None,
             renaming: None,
             settings_modal: None,
+            git_panel: None,
             saved_path: crate::saved::default_path(),
             last_saved: None,
             dormant: Vec::new(),
@@ -291,6 +295,7 @@ impl Workspace {
             }
         }
         changed |= self.poll_titles();
+        self.refresh_git(cx);
         if changed && self.sidebar_visible {
             cx.notify();
         }
@@ -1203,6 +1208,9 @@ impl Render for Workspace {
             .on_action(cx.listener(|_, _: &ZoomOut, window, cx| {
                 Self::zoom(Some(-1), window, cx);
             }))
+            .on_action(cx.listener(|this, _: &ToggleGitPanel, _, cx| {
+                this.toggle_git_panel(cx);
+            }))
             .on_action(cx.listener(|_, _: &ZoomReset, window, cx| {
                 Self::zoom(None, window, cx);
             }))
@@ -1221,7 +1229,14 @@ impl Render for Workspace {
                     .min_w_0()
                     .h_full()
                     .child(self.render_titlebar(titlebar_rounding, window, cx))
-                    .child(self.render_panes(cx)),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.render_panes(cx))
+                            .when_some(self.render_git_panel(cx), ParentElement::child),
+                    ),
             )
             .relative()
             .when_some(self.render_agent_menu(cx), ParentElement::child)

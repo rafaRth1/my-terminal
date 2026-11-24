@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use gpui::{AssetSource, Result, SharedString};
 
 /// Path and bytes of every embedded file.
-const FILES: [(&str, &[u8]); 8] = [
+const FILES: [(&str, &[u8]); 9] = [
     (
         "icons/claude.svg",
         include_bytes!("../assets/icons/claude.svg"),
@@ -32,6 +32,7 @@ const FILES: [(&str, &[u8]); 8] = [
         "ui/settings.svg",
         include_bytes!("../assets/ui/settings.svg"),
     ),
+    ("ui/git.svg", include_bytes!("../assets/ui/git.svg")),
 ];
 
 /// Serves [`FILES`]; registered with `Application::with_assets`.
@@ -71,7 +72,12 @@ mod tests {
 
     #[test]
     fn ui_icons_are_svgs() {
-        for path in ["ui/split-right.svg", "ui/unsplit.svg", "ui/settings.svg"] {
+        for path in [
+            "ui/split-right.svg",
+            "ui/unsplit.svg",
+            "ui/settings.svg",
+            "ui/git.svg",
+        ] {
             let bytes = Assets.load(path).unwrap().expect(path);
             let text = std::str::from_utf8(&bytes).unwrap();
             assert!(text.starts_with("<svg"), "{path}");
@@ -88,7 +94,7 @@ mod tests {
     fn list_filters_by_prefix() {
         let icons = Assets.list("icons/").unwrap();
         assert_eq!(icons.len(), AGENTS.len());
-        assert_eq!(Assets.list("ui/").unwrap().len(), 3);
+        assert_eq!(Assets.list("ui/").unwrap().len(), 4);
         assert_eq!(Assets.list("other/").unwrap(), Vec::<SharedString>::new());
     }
 }
