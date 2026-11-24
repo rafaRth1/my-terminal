@@ -65,6 +65,7 @@ cargo run --release -p app
 | `Ctrl+Shift+A` | Cambiar la cuenta de Claude de los paneles nuevos |
 | `Ctrl+Shift+F` | Buscar en la salida del panel enfocado (Enter: anterior, Shift+Enter: siguiente, Esc cierra) |
 | `Ctrl+Shift+K` | Buscar sesiones en la barra lateral (Enter abre la primera, Esc limpia) |
+| `Ctrl+Shift+P` | Paleta de comandos |
 | `Ctrl+Shift+G` | Mostrar / ocultar el panel de git |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Agrandar / achicar / restablecer la fuente de todos los paneles |
 | `Ctrl+clic` | Abrir la URL o la ruta `archivo:línea` bajo el ratón |
@@ -114,6 +115,15 @@ salvo que la búsqueda tenga alguna.
 
 Abrir my-terminal cuando ya está abierto trae al frente la ventana existente
 en lugar de abrir otra (con `$XDG_RUNTIME_DIR` disponible).
+
+## Paleta de comandos
+
+`Ctrl+Shift+P` abre una búsqueda sobre todo lo que la aplicación puede hacer:
+las acciones (con su atajo), ir a cualquier sesión abierta, reanudar una
+sesión guardada, abrir cada agente instalado y cambiar de cuenta de Claude.
+La búsqueda es aproximada: alcanza con algunas letras en orden (`gp` encuentra
+"Toggle git panel"), y pesan más los comienzos de palabra y las letras
+seguidas. ↑/↓ eligen, Enter ejecuta, Esc o un clic afuera cierran.
 
 ## Panel de git
 
