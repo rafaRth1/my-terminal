@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use gpui::{AssetSource, Result, SharedString};
 
 /// Path and bytes of every embedded file.
-const FILES: [(&str, &[u8]); 9] = [
+const FILES: [(&str, &[u8]); 8] = [
     (
         "icons/claude.svg",
         include_bytes!("../assets/icons/claude.svg"),
@@ -13,10 +13,6 @@ const FILES: [(&str, &[u8]); 9] = [
     (
         "icons/openai.svg",
         include_bytes!("../assets/icons/openai.svg"),
-    ),
-    (
-        "icons/googlegemini.svg",
-        include_bytes!("../assets/icons/googlegemini.svg"),
     ),
     ("icons/qwen.svg", include_bytes!("../assets/icons/qwen.svg")),
     (

@@ -75,7 +75,7 @@ pub struct Agent {
 }
 
 /// Agents in the order the bar shows them.
-pub const AGENTS: [Agent; 6] = [
+pub const AGENTS: [Agent; 5] = [
     Agent {
         id: "claude",
         name: "Claude Code",
@@ -99,21 +99,6 @@ pub const AGENTS: [Agent; 6] = [
         login_hint: "sign in with `codex login`",
         accounts: false,
         probe: Probe::Command(&["login", "status"], parse_codex),
-    },
-    Agent {
-        id: "gemini",
-        name: "Gemini CLI",
-        icon: "icons/googlegemini.svg",
-        color: 0x0042_85f4,
-        program: "gemini",
-        install_url: "https://github.com/google-gemini/gemini-cli",
-        login: "gemini",
-        login_hint: "gemini asks you to sign in when it starts (or type /auth)",
-        accounts: false,
-        probe: Probe::CredentialsFile {
-            path: ".gemini/oauth_creds.json",
-            env: Some("GEMINI_API_KEY"),
-        },
     },
     Agent {
         id: "qwen",
@@ -232,7 +217,7 @@ const INTERPRETERS: [&str; 4] = ["node", "bun", "deno", "python3"];
 const MAX_TREE_DEPTH: usize = 4;
 
 /// The agent a command line runs: its program name, or the script name when
-/// the program is an interpreter (`node .../bin/gemini`).
+/// the program is an interpreter (`node .../bin/qwen`).
 pub fn agent_for_command(args: &[String]) -> Option<&'static Agent> {
     let base = |arg: &String| {
         let name = Path::new(arg).file_name()?.to_str()?;
@@ -508,12 +493,12 @@ mod tests {
     fn credentials_file_presence_decides() {
         let home = TempDir::new();
         assert_eq!(
-            file_state(&home.0, ".gemini/oauth_creds.json"),
+            file_state(&home.0, ".qwen/oauth_creds.json"),
             SignIn::SignedOut
         );
-        home.file(".gemini/oauth_creds.json", 0o600);
+        home.file(".qwen/oauth_creds.json", 0o600);
         assert_eq!(
-            file_state(&home.0, ".gemini/oauth_creds.json"),
+            file_state(&home.0, ".qwen/oauth_creds.json"),
             SignIn::SignedIn
         );
     }
@@ -658,8 +643,8 @@ mod tests {
             Some("antigravity")
         );
         assert_eq!(
-            ids(&["node", "/x/lib/node_modules/.bin/gemini"]),
-            Some("gemini")
+            ids(&["node", "/x/lib/node_modules/.bin/qwen"]),
+            Some("qwen")
         );
         assert_eq!(
             ids(&["/usr/bin/node", "/x/@openai/codex/bin/codex.js"]),
@@ -740,5 +725,12 @@ mod tests {
             ])),
             ["CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_PID"]
         );
+    }
+
+    #[test]
+    fn gemini_cli_is_not_an_agent() {
+        assert!(AGENTS.iter().all(|agent| agent.id != "gemini"));
+        let args = |list: &[&str]| list.iter().map(|a| (*a).to_owned()).collect::<Vec<_>>();
+        assert_eq!(agent_for_command(&args(&["gemini"])).map(|a| a.id), None);
     }
 }
