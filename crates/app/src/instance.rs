@@ -164,14 +164,16 @@ mod tests {
         let path = dir.join(SOCKET_NAME);
         let mut won = 0;
         for _ in 0..200 {
-            let claims: Vec<Claim> = std::thread::scope(|scope| {
-                let a = scope.spawn(|| claim(&path).unwrap());
-                let b = scope.spawn(|| claim(&path).unwrap());
+            let claims: Vec<Option<Claim>> = std::thread::scope(|scope| {
+                // An error (lock held by a forked copy, no one answering)
+                // counts as not primary.
+                let a = scope.spawn(|| claim(&path).ok());
+                let b = scope.spawn(|| claim(&path).ok());
                 vec![a.join().unwrap(), b.join().unwrap()]
             });
             let primaries = claims
                 .iter()
-                .filter(|c| matches!(c, Claim::Primary(..)))
+                .filter(|c| matches!(c, Some(Claim::Primary(..))))
                 .count();
             // Never two. Rarely none: another test forking at that moment
             // briefly holds a copy of the previous round's lock and socket.
