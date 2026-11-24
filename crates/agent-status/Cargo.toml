@@ -1,0 +1,19 @@
+[package]
+name = "agent-status"
+description = "Claude Code hook events: parsing, agent state, IPC to the app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "my-terminal-hook"
+path = "src/bin/my-terminal-hook.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
