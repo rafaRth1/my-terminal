@@ -95,10 +95,10 @@ impl HookServer {
             .spawn(move || {
                 for stream in listener.incoming() {
                     let Ok(stream) = stream else { continue };
-                    if let Some(event) = read_event(stream) {
-                        if tx.send(event).is_err() {
-                            break; // The app is gone.
-                        }
+                    if let Some(event) = read_event(stream)
+                        && tx.send(event).is_err()
+                    {
+                        break; // The app is gone.
                     }
                 }
             })?;
