@@ -7,6 +7,7 @@ mod assets;
 mod bridge;
 mod config;
 mod decorations;
+mod git;
 mod input;
 mod instance;
 mod notify;
