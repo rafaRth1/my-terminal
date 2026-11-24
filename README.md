@@ -25,7 +25,7 @@ comportamiento queda cubierta por tests rápidos sin interfaz gráfica.
 
 ## Requisitos
 
-- Rust 1.85+ (edición 2024)
+- Rust 1.89+ (edición 2024)
 - Para la interfaz (Ubuntu):
 
   ```sh
@@ -49,7 +49,10 @@ cargo run --release -p app
 | `Ctrl+Shift+Right` / `Left` | Enfocar el panel siguiente / anterior |
 | `Ctrl+Shift+B` | Mostrar / ocultar la barra lateral |
 | `Ctrl+Shift+A` | Cambiar la cuenta de Claude de los paneles nuevos |
-| `Ctrl+Shift+F` | Buscar sesiones en la barra lateral (Enter abre la primera, Esc limpia) |
+| `Ctrl+Shift+F` | Buscar en la salida del panel enfocado (Enter: anterior, Shift+Enter: siguiente, Esc cierra) |
+| `Ctrl+Shift+K` | Buscar sesiones en la barra lateral (Enter abre la primera, Esc limpia) |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Agrandar / achicar / restablecer la fuente de todos los paneles |
+| `Ctrl+clic` | Abrir la URL o la ruta `archivo:línea` bajo el ratón |
 | `Ctrl+Shift+C` | Copiar la selección |
 | `Ctrl+Shift+V` | Pegar (en modo *bracketed* cuando el programa lo pide) |
 
@@ -80,6 +83,42 @@ enfocado.
 
 Arrastrar el espacio vacío de la barra de título mueve la ventana; doble clic
 la maximiza.
+
+`Ctrl+clic` sobre una URL (`http`, `https`, `file`) la abre en el navegador.
+Sobre una ruta, con o sin `:línea:columna` (`src/main.rs:42:7`), abre el
+archivo, si existe, en una pestaña nueva con `$VISUAL`, `$EDITOR` o `nvim`
+en esa línea; sin editor, lo abre la aplicación predeterminada. Sobre una
+carpeta (`crates/app/src`, `~/Descargas`), la abre en el explorador de
+archivos. Las rutas cuentan como tales si tienen una `/` (o un número de línea
+y un punto, como `main.rs:12`).
+
+La búsqueda (`Ctrl+Shift+F`) recorre la pantalla y el historial del panel:
+resalta todas las coincidencias, marca la actual y muestra `n/total`. El texto
+se busca tal cual (no es una expresión regular) y no distingue mayúsculas
+salvo que la búsqueda tenga alguna.
+
+Abrir my-terminal cuando ya está abierto trae al frente la ventana existente
+en lugar de abrir otra (con `$XDG_RUNTIME_DIR` disponible).
+
+## Configuración
+
+El engranaje de la barra de título abre la configuración: fuente, tamaño y
+tema. Los cambios se aplican al instante a todos los paneles y se guardan en
+`$XDG_CONFIG_HOME/my-terminal/config.toml` (por defecto
+`~/.config/my-terminal/config.toml`), que también se puede editar a mano;
+todas las claves son opcionales:
+
+```toml
+font_family = "FiraCode Nerd Font Mono"
+font_size = 14        # 6 a 48
+theme = "dark"        # o "light"
+```
+
+El archivo se lee al iniciar; cada clave inválida o desconocida se informa por
+la salida de error y deja esa clave con su valor por defecto, sin afectar a
+las demás. El tema se aplica a los paneles de terminal; la
+barra lateral y la de título siguen oscuras. El zoom con `Ctrl+=` / `Ctrl+-`
+dura hasta cerrar la aplicación.
 
 ## Barra de agentes
 
@@ -115,6 +154,14 @@ punto de estado sobre el logo: trabajando (azul), esperando (amarillo),
 terminado (verde). El buscador sobre los filtros conserva las sesiones cuyo
 título, actividad o proyecto contienen todas las palabras.
 
+Clic derecho sobre una sesión y **Rename** permite ponerle un nombre propio
+(Enter guarda, Esc cancela, vacío vuelve al título automático); el nombre se
+guarda con la sesión.
+
+Cuando una sesión de Claude Code pasa a *esperando* (pide permiso) o a
+*terminado* y la ventana no tiene el foco, se muestra una notificación de
+escritorio con `notify-send`.
+
 ## Sesiones guardadas
 
 Las sesiones de agentes (Claude Code, Codex, Gemini, ...) se guardan cada vez
@@ -126,8 +173,10 @@ Al siguiente inicio aparecen atenuadas en la barra lateral, como **Saved ·
 click to resume**, y nada se ejecuta hasta hacer clic en una: entonces se abre
 una pestaña en su carpeta, con su cuenta, que ejecuta `claude --resume <id>`
 (Claude Code recupera la conversación completa desde su propio historial) o
-inicia de cero el otro agente. La pantalla de un shell y los comandos en curso
-no se pueden recuperar. Clic derecho sobre una sesión guardada y **Forget
+inicia de cero el otro agente. Si la sesión estaba en una división con otras,
+vuelve a esa división en su lugar y con su ancho cuando otra sesión de la
+misma división ya está abierta. La pantalla de un shell y los comandos en
+curso no se pueden recuperar. Clic derecho sobre una sesión guardada y **Forget
 session** la elimina.
 
 Un clic en el nombre de un proyecto de la barra lateral pliega o despliega su
@@ -199,10 +248,8 @@ cargo fmt --all --check
 
 ## Limitaciones conocidas
 
-- Dos ventanas abiertas al mismo tiempo escriben el mismo `sessions.json`; la
-  última en guardar pisa a la otra.
-- La disposición de los paneles divididos no se restaura: cada sesión
-  reanudada se abre en su propia pestaña.
+- Los shells sin agente no se guardan, así que una división restaurada solo
+  recupera los paneles de agentes.
 - Un programa que imprime y termina en milisegundos puede perder su última
   salida en Linux: el PTY informa `EIO` antes de que el kernel vacíe su búfer.
   Los programas de larga duración (shells, `claude`) no se ven afectados.
