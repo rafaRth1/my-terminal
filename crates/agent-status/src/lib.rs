@@ -5,6 +5,7 @@
 //! socket ([`ipc`]); the app parses it ([`HookEvent`]) and folds it into an
 //! [`AgentState`] per pane.
 
+pub mod adapt;
 mod event;
 pub mod ipc;
 mod project;

@@ -12,7 +12,13 @@ pub enum HookKind {
     PreToolUse,
     PostToolUse,
     Notification,
+    /// The agent asks to run a tool (Codex, Qwen Code): waiting for the user.
+    PermissionRequest,
     Stop,
+    /// The user interrupted the turn (Codex).
+    Interrupt,
+    /// The turn ended with an error (Qwen Code).
+    StopFailure,
     SubagentStop,
     SessionEnd,
     /// Any other event, kept by name.
@@ -27,7 +33,10 @@ impl From<&str> for HookKind {
             "PreToolUse" => Self::PreToolUse,
             "PostToolUse" => Self::PostToolUse,
             "Notification" => Self::Notification,
+            "PermissionRequest" => Self::PermissionRequest,
             "Stop" => Self::Stop,
+            "Interrupt" => Self::Interrupt,
+            "StopFailure" => Self::StopFailure,
             "SubagentStop" => Self::SubagentStop,
             "SessionEnd" => Self::SessionEnd,
             other => Self::Other(other.to_owned()),

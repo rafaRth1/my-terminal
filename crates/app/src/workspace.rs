@@ -278,6 +278,13 @@ impl Workspace {
                     changed = true;
                 }
                 if meta.running.map(|a| a.id) != running.map(|a| a.id) {
+                    // Some agents (Antigravity) never report the end of a
+                    // session: when the agent seen in the pane exits, its
+                    // status goes too. Panes where no agent was ever seen
+                    // (tmux, sudo, deep trees) keep their hook status.
+                    if meta.running.is_some() && running.is_none() {
+                        self.agents.remove(&meta.id);
+                    }
                     meta.running = running;
                     changed = true;
                 }
@@ -711,10 +718,15 @@ impl Workspace {
                 .and_then(|meta| self.titles.get(&meta.id))
                 .and_then(|reader| reader.title())
                 .map(str::to_owned);
+            let running = self
+                .panes
+                .get(&pane.entity_id())
+                .and_then(|meta| meta.running)
+                .map_or("Claude Code", |agent| agent.name);
             return title
                 .map(SharedString::from)
                 .or_else(|| agent.topic.clone().map(Into::into))
-                .unwrap_or_else(|| "Claude Code".into());
+                .unwrap_or_else(|| running.into());
         }
         if let Some(running) = self
             .panes

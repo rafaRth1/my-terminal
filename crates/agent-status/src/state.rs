@@ -109,7 +109,8 @@ impl AgentState {
                 self.activity = event.message.as_deref().map(summarize);
                 AgentStatus::Waiting
             }
-            HookKind::Stop => AgentStatus::Done,
+            HookKind::PermissionRequest => AgentStatus::Waiting,
+            HookKind::Stop | HookKind::Interrupt | HookKind::StopFailure => AgentStatus::Done,
             HookKind::Other(_) => self.status,
         };
 
@@ -261,5 +262,19 @@ mod tests {
         // Events without a path keep the known one.
         state.apply(&event(HookKind::Stop), now);
         assert_eq!(state.transcript, Some(PathBuf::from("/t/s1.jsonl")));
+    }
+
+    #[test]
+    fn permission_requests_wait_and_interrupts_finish() {
+        let now = Instant::now();
+        let mut state = AgentState::new(&event(HookKind::UserPromptSubmit), now);
+        assert_eq!(state.status, AgentStatus::Working);
+        state.apply(&event(HookKind::from("PermissionRequest")), now);
+        assert_eq!(state.status, AgentStatus::Waiting);
+        state.apply(&event(HookKind::from("Interrupt")), now);
+        assert_eq!(state.status, AgentStatus::Done);
+        state.apply(&event(HookKind::UserPromptSubmit), now);
+        state.apply(&event(HookKind::from("StopFailure")), now);
+        assert_eq!(state.status, AgentStatus::Done);
     }
 }

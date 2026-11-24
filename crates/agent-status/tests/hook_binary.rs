@@ -13,8 +13,18 @@ const PAYLOAD: &str =
 
 /// Runs the hook with `env`, feeding `PAYLOAD`; returns (exit code, stdout, stderr).
 fn run_hook(env: &[(&str, &str)]) -> (Option<i32>, String, String) {
+    run_hook_with(&[], PAYLOAD, env)
+}
+
+/// Runs the hook with `args` and `env`, feeding `payload`.
+fn run_hook_with(
+    args: &[&str],
+    payload: &str,
+    env: &[(&str, &str)],
+) -> (Option<i32>, String, String) {
     let mut command = Command::new(HOOK);
     command
+        .args(args)
         .env_remove(PANE_ENV)
         .env_remove(SOCKET_ENV)
         .envs(env.iter().copied())
@@ -26,7 +36,7 @@ fn run_hook(env: &[(&str, &str)]) -> (Option<i32>, String, String) {
         .stdin
         .take()
         .unwrap()
-        .write_all(PAYLOAD.as_bytes())
+        .write_all(payload.as_bytes())
         .unwrap();
     let output = child.wait_with_output().unwrap();
     (
@@ -63,4 +73,58 @@ fn exits_cleanly_when_app_is_gone() {
     let (code, stdout, stderr) =
         run_hook(&[(SOCKET_ENV, socket.to_str().unwrap()), (PANE_ENV, "1")]);
     assert_eq!((code, stdout.as_str(), stderr.as_str()), (Some(0), "", ""));
+}
+
+#[test]
+fn antigravity_always_gets_a_reply_that_lets_it_stop() {
+    let stop = r#"{"hookEventName":"Stop","conversationId":"c-1","fullyIdle":true}"#;
+    let (code, stdout, stderr) = run_hook_with(&["--agent", "agy"], stop, &[]);
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), r#"{"decision":"allow"}"#, "")
+    );
+}
+
+#[test]
+fn antigravity_events_reach_the_app_reshaped() {
+    let socket = std::env::temp_dir().join(format!("hook-agy-{}.sock", std::process::id()));
+    let (_server, events) = HookServer::bind(&socket).unwrap();
+    let payload = r#"{"hookEventName":"PreInvocation","conversationId":"c-1","workspacePaths":["/w"],"lastUserInput":"fix it"}"#;
+    let (code, stdout, _) = run_hook_with(
+        &["--agent", "agy"],
+        payload,
+        &[(SOCKET_ENV, socket.to_str().unwrap()), (PANE_ENV, "7")],
+    );
+    assert_eq!((code, stdout.as_str()), (Some(0), "{}"));
+    let received = events.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(received.pane, 7);
+    assert_eq!(received.event.kind, HookKind::UserPromptSubmit);
+    assert_eq!(received.event.session_id, "c-1");
+    assert_eq!(received.event.prompt.as_deref(), Some("fix it"));
+}
+
+#[test]
+fn non_antigravity_sources_never_print() {
+    let arg_sets: [&[&str]; 4] = [
+        &[],
+        &["--agent", "qwen"],
+        &["--agent", "codex"],
+        &["--agent"],
+    ];
+    for args in arg_sets {
+        for payload in ["", "garbage", r#"{"hook_event_name":"Stop"}"#] {
+            let (code, stdout, stderr) = run_hook_with(args, payload, &[]);
+            assert_eq!(
+                (code, stdout.as_str(), stderr.as_str()),
+                (Some(0), "", ""),
+                "{args:?} {payload}"
+            );
+        }
+    }
+}
+
+#[test]
+fn antigravity_replies_even_to_malformed_input() {
+    let (code, stdout, _) = run_hook_with(&["--agent", "agy"], "not json", &[]);
+    assert_eq!((code, stdout.as_str()), (Some(0), "{}"));
 }
