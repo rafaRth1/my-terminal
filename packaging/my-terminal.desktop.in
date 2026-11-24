@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=my-terminal
+GenericName=Terminal
+Comment=Terminal for Claude Code and other agent CLIs
+Exec=@BIN@
+Icon=my-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=terminal;shell;claude;agent;
+StartupWMClass=my-terminal
+StartupNotify=true

@@ -33,7 +33,21 @@ comportamiento queda cubierta por tests rápidos sin interfaz gráfica.
     libfontconfig-dev libxcb1-dev libx11-xcb-dev libssl-dev clang
   ```
 
-## Ejecutar
+## Instalar
+
+```sh
+./install.sh
+```
+
+Compila e instala la aplicación en `~/.local/bin/my-terminal`, el hook de los
+agentes en `~/.cargo/bin/my-terminal-hook`, un lanzador en el menú de
+aplicaciones (`~/.local/share/applications/my-terminal.desktop`) y su ícono.
+Para actualizar después de cambios, se vuelve a ejecutar `./install.sh`; una
+ventana abierta sigue con la versión anterior hasta cerrarla y abrirla de
+nuevo. `./install.sh --uninstall` quita la aplicación, el lanzador y el ícono
+(el hook y la configuración quedan).
+
+## Ejecutar sin instalar
 
 ```sh
 cargo run --release -p app
