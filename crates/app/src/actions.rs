@@ -19,6 +19,10 @@ actions!(
         ToggleSidebar,
         SwitchAccount,
         FocusSearch,
+        FindInTerminal,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
     ]
 );
 
@@ -26,9 +30,11 @@ actions!(
 pub const WORKSPACE_CONTEXT: &str = "Workspace";
 /// Key context of the accounts dialog.
 pub const ACCOUNT_MODAL_CONTEXT: &str = "AccountModal";
+/// Key context of the settings dialog.
+pub const SETTINGS_MODAL_CONTEXT: &str = "SettingsModal";
 /// Shortcuts apply in the workspace but not while the accounts dialog has
 /// focus: they would move focus to a terminal hidden behind it.
-const SHORTCUT_CONTEXT: &str = "Workspace && !AccountModal";
+const SHORTCUT_CONTEXT: &str = "Workspace && !AccountModal && !SettingsModal";
 
 /// Registers the default shortcuts.
 pub fn bind_default_keys(cx: &mut App) {
@@ -45,7 +51,12 @@ pub fn bind_default_keys(cx: &mut App) {
         KeyBinding::new("ctrl-shift-left", FocusPrevPane, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl-shift-b", ToggleSidebar, Some(SHORTCUT_CONTEXT)),
         KeyBinding::new("ctrl-shift-a", SwitchAccount, Some(SHORTCUT_CONTEXT)),
-        KeyBinding::new("ctrl-shift-f", FocusSearch, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-shift-k", FocusSearch, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-shift-f", FindInTerminal, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-=", ZoomIn, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-+", ZoomIn, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl--", ZoomOut, Some(SHORTCUT_CONTEXT)),
+        KeyBinding::new("ctrl-0", ZoomReset, Some(SHORTCUT_CONTEXT)),
     ]);
 }
 
@@ -70,8 +81,9 @@ mod tests {
     }
 
     #[test]
-    fn shortcuts_are_off_while_the_accounts_dialog_has_focus() {
+    fn shortcuts_are_off_while_a_dialog_has_focus() {
         assert!(!matches(&["Workspace", "AccountModal"]));
+        assert!(!matches(&[WORKSPACE_CONTEXT, SETTINGS_MODAL_CONTEXT]));
         assert!(!matches(&[]));
     }
 }

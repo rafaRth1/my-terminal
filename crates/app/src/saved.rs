@@ -20,7 +20,7 @@ const MAX_SESSION_ID: usize = 128;
 const FILE_NAME: &str = "sessions.json";
 
 /// One session as written to disk.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedSession {
     pub title: String,
     #[serde(default)]
@@ -34,10 +34,22 @@ pub struct SavedSession {
     /// Account name; `None` for the default login.
     #[serde(default)]
     pub account: Option<String>,
+    /// Name the user gave the session; shown instead of `title`.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Id of the split (tab) the session was in, when it had company.
+    #[serde(default)]
+    pub split: Option<u64>,
+    /// Place in that split, from the left.
+    #[serde(default)]
+    pub position: Option<usize>,
+    /// Share of the split's width, in `(0, 1]`.
+    #[serde(default)]
+    pub width: Option<f32>,
 }
 
 /// Everything in the file.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SavedState {
     #[serde(default)]
     pub sessions: Vec<SavedSession>,
@@ -123,7 +135,18 @@ pub fn save(path: &Path, state: &SavedState) -> io::Result<()> {
 fn clean(mut state: SavedState) -> SavedState {
     state.sessions.truncate(MAX_SESSIONS);
     for session in &mut state.sessions {
-        session.title = session.title.chars().take(MAX_TITLE_CHARS).collect();
+        session.title = session
+            .title
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TITLE_CHARS)
+            .collect();
+        // Ids the app writes are small; huge ones are hand edits.
+        session.split = session.split.filter(|&id| u32::try_from(id).is_ok());
+        session.name = session.name.as_deref().and_then(clean_name);
+        session.width = session
+            .width
+            .filter(|w| w.is_finite() && *w > 0.0 && *w <= 1.0);
         if session.agent.as_deref().and_then(agent).is_none() {
             session.agent = None;
         }
@@ -136,6 +159,19 @@ fn clean(mut state: SavedState) -> SavedState {
         }
     }
     state
+}
+
+/// A user-given session name: trimmed, first line only, cut like titles;
+/// `None` when blank (the session goes back to its automatic title).
+pub fn clean_name(name: &str) -> Option<String> {
+    let line = name.lines().find(|l| !l.trim().is_empty())?.trim();
+    let clean: String = line
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_TITLE_CHARS)
+        .collect();
+    let clean = clean.trim();
+    (!clean.is_empty()).then(|| clean.to_owned())
 }
 
 fn agent(id: &str) -> Option<&'static Agent> {
@@ -186,6 +222,10 @@ mod tests {
             agent: Some("claude".into()),
             claude_session: id.map(str::to_owned),
             account: Some("work".into()),
+            name: None,
+            split: None,
+            position: None,
+            width: None,
         }
     }
 
@@ -284,5 +324,105 @@ mod tests {
             ..SavedSession::default()
         };
         assert_eq!(resume_command(&unknown), None);
+    }
+
+    #[test]
+    fn custom_names_round_trip_and_old_files_still_load() {
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        // A file written before names existed.
+        fs::write(&path, r#"{"sessions":[{"title":"t","agent":"claude"}]}"#).unwrap();
+        let (state, error) = load(&path);
+        assert_eq!(error, None);
+        assert_eq!(state.sessions[0].name, None);
+
+        let named = SavedState {
+            sessions: vec![SavedSession {
+                name: Some("Login bug".into()),
+                ..claude(None)
+            }],
+            collapsed: Vec::new(),
+        };
+        save(&path, &named).unwrap();
+        assert_eq!(load(&path).0, named);
+
+        // Names are cut like titles; blank names are dropped.
+        let long = SavedState {
+            sessions: vec![
+                SavedSession {
+                    name: Some("n".repeat(MAX_TITLE_CHARS + 9)),
+                    ..SavedSession::default()
+                },
+                SavedSession {
+                    name: Some("   ".into()),
+                    ..SavedSession::default()
+                },
+            ],
+            collapsed: Vec::new(),
+        };
+        save(&path, &long).unwrap();
+        let loaded = load(&path).0;
+        assert_eq!(
+            loaded.sessions[0].name.as_ref().unwrap().chars().count(),
+            MAX_TITLE_CHARS
+        );
+        assert_eq!(loaded.sessions[1].name, None);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn split_layout_round_trips_and_bad_widths_are_dropped() {
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        let state = SavedState {
+            sessions: vec![
+                SavedSession {
+                    split: Some(4),
+                    position: Some(0),
+                    width: Some(0.6),
+                    ..claude(None)
+                },
+                SavedSession {
+                    split: Some(4),
+                    position: Some(1),
+                    width: Some(0.4),
+                    ..claude(None)
+                },
+            ],
+            collapsed: Vec::new(),
+        };
+        save(&path, &state).unwrap();
+        assert_eq!(load(&path).0, state);
+
+        fs::write(
+            &path,
+            r#"{"sessions":[{"title":"t","split":1,"position":0,"width":7.5},
+                            {"title":"u","split":1,"position":1,"width":-1}]}"#,
+        )
+        .unwrap();
+        let loaded = load(&path).0;
+        assert_eq!(loaded.sessions[0].width, None);
+        assert_eq!(loaded.sessions[1].width, None);
+        assert_eq!(loaded.sessions[0].split, Some(1));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn names_and_titles_lose_control_characters_and_huge_split_ids() {
+        assert_eq!(
+            clean_name("\n\n  hi \u{1b}[31m").as_deref(),
+            Some("hi [31m")
+        );
+        let dir = temp_dir();
+        let path = dir.join(FILE_NAME);
+        fs::write(
+            &path,
+            r#"{"sessions":[{"title":"a\u0007b","split":18446744073709551615}]}"#,
+        )
+        .unwrap();
+        let loaded = load(&path).0;
+        assert_eq!(loaded.sessions[0].title, "ab");
+        assert_eq!(loaded.sessions[0].split, None);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

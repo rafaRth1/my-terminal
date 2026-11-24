@@ -11,6 +11,45 @@ pub const LINE_HEIGHT: f32 = 1.3;
 /// Space between the window edge and the grid, in pixels.
 pub const PADDING: f32 = 12.0;
 
+/// Font and colors every terminal pane uses, from `config.toml`; the font
+/// size changes with Ctrl+= / Ctrl+- / Ctrl+0.
+#[derive(Debug, Clone)]
+pub struct TerminalSettings {
+    pub font_family: gpui::SharedString,
+    pub font_size: f32,
+    /// Size from the config file, restored by Ctrl+0.
+    pub base_font_size: f32,
+    pub theme_name: crate::config::ThemeName,
+    pub theme: Theme,
+}
+
+impl gpui::Global for TerminalSettings {}
+
+impl TerminalSettings {
+    pub fn from_config(config: &crate::config::Config) -> Self {
+        Self {
+            font_family: config.font_family.clone().into(),
+            font_size: config.font_size,
+            base_font_size: config.font_size,
+            theme_name: config.theme,
+            theme: Theme::from_name(config.theme),
+        }
+    }
+
+    /// The settings as written to `config.toml` (the zoom is not saved).
+    pub fn to_config(&self) -> crate::config::Config {
+        crate::config::Config {
+            font_family: self.font_family.to_string(),
+            font_size: self.base_font_size,
+            theme: self.theme_name,
+        }
+    }
+
+    pub fn line_height(&self) -> f32 {
+        self.font_size * LINE_HEIGHT
+    }
+}
+
 /// Terminal palette: the 16 ANSI colors plus defaults.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -19,6 +58,11 @@ pub struct Theme {
     pub cursor: Rgb,
     /// Background of selected text.
     pub selection: Rgb,
+    /// Background of search matches, and of the match being shown.
+    pub search_match: Rgb,
+    pub search_current: Rgb,
+    /// Text on `search_current`.
+    pub search_current_fg: Rgb,
     pub ansi: [Rgb; 16],
 }
 
@@ -43,6 +87,9 @@ impl Default for Theme {
             background: rgb(0x000a_0a0a),
             cursor: rgb(0x0058_a6ff),
             selection: rgb(0x0026_4f78),
+            search_match: rgb(0x004d_3d10),
+            search_current: rgb(0x00e3_b341),
+            search_current_fg: rgb(0x000a_0a0a),
             ansi: [
                 rgb(0x001a_1a1a), // black
                 rgb(0x00f4_4747), // red
@@ -66,6 +113,45 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// The built-in theme called `name`.
+    pub fn from_name(name: crate::config::ThemeName) -> Self {
+        match name {
+            crate::config::ThemeName::Dark => Self::default(),
+            crate::config::ThemeName::Light => Self::light(),
+        }
+    }
+
+    /// Light theme: white background, GitHub-like palette.
+    fn light() -> Self {
+        Self {
+            foreground: rgb(0x001f_2328),
+            background: rgb(0x00ff_ffff),
+            cursor: rgb(0x0009_69da),
+            selection: rgb(0x00b6_d7ff),
+            search_match: rgb(0x00ff_f2b3),
+            search_current: rgb(0x00f2_cc60),
+            search_current_fg: rgb(0x001f_2328),
+            ansi: [
+                rgb(0x0024_292f), // black
+                rgb(0x00cf_222e), // red
+                rgb(0x0011_6329), // green
+                rgb(0x004d_2d00), // yellow
+                rgb(0x0009_69da), // blue
+                rgb(0x0082_50df), // magenta
+                rgb(0x001b_7c83), // cyan
+                rgb(0x006e_7781), // white
+                rgb(0x0057_606a), // bright black
+                rgb(0x00a4_0e26), // bright red
+                rgb(0x001a_7f37), // bright green
+                rgb(0x0063_3c01), // bright yellow
+                rgb(0x0021_8bff), // bright blue
+                rgb(0x00a4_75f9), // bright magenta
+                rgb(0x0031_92aa), // bright cyan
+                rgb(0x008c_959f), // bright white
+            ],
+        }
+    }
+
     /// Resolves a cell color. Colors the program redefined (OSC 4) win.
     pub fn resolve(&self, color: Color, overrides: &Colors) -> Rgb {
         match color {
@@ -171,5 +257,24 @@ mod tests {
             theme.resolve(Color::Named(NamedColor::Red), &overrides),
             theme.ansi[1]
         );
+    }
+
+    #[test]
+    fn named_themes() {
+        use crate::config::ThemeName;
+        let dark = Theme::from_name(ThemeName::Dark);
+        assert_eq!(dark.background, Theme::default().background);
+        let light = Theme::from_name(ThemeName::Light);
+        assert_eq!(
+            light.background,
+            Rgb {
+                r: 255,
+                g: 255,
+                b: 255
+            }
+        );
+        // Text stays readable on the current-match highlight in both.
+        assert_ne!(light.search_current_fg, light.search_current);
+        assert_ne!(dark.search_current_fg, dark.search_current);
     }
 }

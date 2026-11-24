@@ -32,6 +32,10 @@ impl Workspace {
             .into_iter()
             .map(SharedString::from)
             .collect();
+        // Saved split ids stay free so restored splits keep them.
+        if let Some(max) = state.sessions.iter().filter_map(|s| s.split).max() {
+            self.tabs.reserve_ids_through(max);
+        }
         for session in state.sessions {
             let id = self.next_pane_id;
             self.next_pane_id += 1;
@@ -39,10 +43,20 @@ impl Workspace {
         }
     }
 
-    /// What would be written now: open agent sessions in sidebar order, then
-    /// the dormant ones, then the collapsed groups.
+    /// What would be written now: open agent sessions in sidebar order (with
+    /// their split, place and width when they share a tab), then the dormant
+    /// ones, then the collapsed groups.
     fn saved_state(&self, cx: &Context<Self>) -> SavedState {
-        let open = self.tabs.all_panes().filter_map(|pane| {
+        let placed = self.tabs.tabs().iter().flat_map(|tab| {
+            let shared = tab.panes().len() > 1;
+            tab.panes().iter().zip(tab.widths()).enumerate().map(
+                move |(position, (pane, &width))| {
+                    let layout = shared.then_some((tab.id(), position, width));
+                    (pane, layout)
+                },
+            )
+        });
+        let open = placed.filter_map(|(pane, layout)| {
             let meta = self.panes.get(&pane.entity_id())?;
             let hooks = self.agents.get(&meta.id);
             // Hooks only come from Claude Code.
@@ -58,6 +72,10 @@ impl Workspace {
                 agent: Some(agent.to_owned()),
                 claude_session: hooks.map(|state| state.session_id.clone()),
                 account: meta.account.as_ref().map(ToString::to_string),
+                name: meta.name.as_ref().map(ToString::to_string),
+                split: layout.map(|(id, _, _)| id),
+                position: layout.map(|(_, position, _)| position),
+                width: layout.map(|(_, _, width)| width),
             })
         });
         let mut sessions: Vec<SavedSession> = open
@@ -118,15 +136,51 @@ impl Workspace {
         let Some(pane) = self.spawn_pane_at(account, dir, window, cx) else {
             return;
         };
-        self.dormant.remove(index);
+        let saved = self.dormant.remove(index).session;
+        if let Some(meta) = self.panes.get_mut(&pane.entity_id()) {
+            meta.name = saved.name.clone().map(SharedString::from);
+            meta.split_position = saved.position;
+        }
         self.account_error = None;
         if let Some(command) = command {
             pane.read(cx).run_command(&command);
         }
-        self.tabs.open_tab(pane);
+        self.place_resumed(pane, &saved);
         self.focus_active(window, cx);
         self.save_sessions(cx);
         cx.notify();
+    }
+
+    /// Puts a resumed pane back in its split when another session of that
+    /// split is open (at its place, with its width); otherwise opens the
+    /// split's tab with just this pane.
+    fn place_resumed(&mut self, pane: super::Pane, saved: &SavedSession) {
+        let Some(split) = saved.split else {
+            self.tabs.open_tab(pane);
+            return;
+        };
+        let mine = saved.position.unwrap_or(usize::MAX);
+        // Panes of that tab that were to its left (unknown places count as left).
+        let before = self
+            .tabs
+            .tabs()
+            .iter()
+            .find(|tab| tab.id() == split)
+            .map_or(0, |tab| {
+                tab.panes()
+                    .iter()
+                    .filter(|view| {
+                        self.panes
+                            .get(&view.entity_id())
+                            .and_then(|meta| meta.split_position)
+                            .is_none_or(|theirs| theirs < mine)
+                    })
+                    .count()
+            });
+        let width = saved.width.unwrap_or(0.5);
+        if let Err(pane) = self.tabs.insert_into(split, pane, before, width) {
+            self.tabs.open_tab_with_id(pane, split);
+        }
     }
 
     /// Drops dormant session `id` from the sidebar and the file.

@@ -131,7 +131,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match event {
-            TextFieldEvent::Submit => self.submit_page(window, cx),
+            TextFieldEvent::Submit | TextFieldEvent::SubmitBack => self.submit_page(window, cx),
             TextFieldEvent::Cancel => self.back(window, cx),
             TextFieldEvent::Changed => {}
             TextFieldEvent::Next => {

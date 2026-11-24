@@ -100,6 +100,10 @@ impl Workspace {
             .flex_none()
             .h_full()
             .child(
+                pane_button("settings", "ui/settings.svg", "Settings")
+                    .on_click(cx.listener(|this, _, window, cx| this.open_settings(window, cx))),
+            )
+            .child(
                 pane_button(
                     "split-right",
                     "ui/split-right.svg",

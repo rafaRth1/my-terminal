@@ -20,8 +20,9 @@ use term_core::{Session, SessionConfig, TerminalSize};
 
 use crate::accounts::{self, Accounts, DEFAULT_ACCOUNT, PaneAccount, TOKEN_ENV};
 use crate::actions::{
-    ClosePane, CloseTab, FocusNextPane, FocusPrevPane, FocusSearch, NewTab, NextTab, PrevTab,
-    SplitRight, SwitchAccount, ToggleSidebar, WORKSPACE_CONTEXT,
+    ClosePane, CloseTab, FindInTerminal, FocusNextPane, FocusPrevPane, FocusSearch, NewTab,
+    NextTab, PrevTab, SplitRight, SwitchAccount, ToggleSidebar, WORKSPACE_CONTEXT, ZoomIn, ZoomOut,
+    ZoomReset,
 };
 use crate::decorations::{Rounding, WindowFrame};
 use crate::sidebar::{self, Filter, Item};
@@ -33,8 +34,10 @@ mod account_modal;
 mod agent_bar;
 mod menu;
 mod panes;
+mod rename;
 mod restore;
 mod session_menu;
+mod settings_modal;
 
 use account_modal::AccountModal;
 
@@ -81,10 +84,16 @@ struct PaneMeta {
     account: Option<SharedString>,
     /// Agent CLI found running in the pane at the last refresh.
     running: Option<&'static crate::agents::Agent>,
+    /// Name the user gave the session; shown instead of the automatic title.
+    name: Option<SharedString>,
+    /// Place in its split when it was restored from a saved one.
+    split_position: Option<usize>,
     _subscription: Subscription,
 }
 
 /// Owns every tab and pane of a window.
+// The flags are independent UI facts, not one state machine.
+#[expect(clippy::struct_excessive_bools)]
 pub struct Workspace {
     tabs: Tabs<Pane>,
     panes: HashMap<EntityId, PaneMeta>,
@@ -118,6 +127,10 @@ pub struct Workspace {
     agent_menu: Option<agent_bar::AgentMenu>,
     /// Right-click menu of a sidebar session.
     session_menu: Option<session_menu::SessionMenu>,
+    /// Sidebar row whose title is being edited.
+    renaming: Option<rename::Renaming>,
+    /// Open settings dialog.
+    settings_modal: Option<settings_modal::SettingsModal>,
     /// Where sessions are saved; `None` without a home directory.
     saved_path: Option<PathBuf>,
     /// Last text written there, to skip writes when nothing changed.
@@ -132,6 +145,9 @@ pub struct Workspace {
     /// Sidebar search box; filters sessions by title, subtitle and project.
     search: Entity<TextField>,
     _search_subscription: Subscription,
+    /// Whether the window has focus; notifications only go out when not.
+    window_active: bool,
+    _activation_subscription: Subscription,
     _tasks: Vec<Task<()>>,
 }
 
@@ -161,6 +177,9 @@ impl Workspace {
         let search_subscription = cx.subscribe_in(&search, window, |this, _, event, window, cx| {
             this.on_search_event(*event, window, cx);
         });
+        let activation_subscription = cx.observe_window_activation(window, |this, window, _| {
+            this.window_active = window.is_window_active();
+        });
         let mut workspace = Self {
             tabs: Tabs::default(),
             panes: HashMap::new(),
@@ -182,6 +201,8 @@ impl Workspace {
             probing_agents: false,
             agent_menu: None,
             session_menu: None,
+            renaming: None,
+            settings_modal: None,
             saved_path: crate::saved::default_path(),
             last_saved: None,
             dormant: Vec::new(),
@@ -191,6 +212,8 @@ impl Workspace {
             ),
             search,
             _search_subscription: search_subscription,
+            window_active: window.is_window_active(),
+            _activation_subscription: activation_subscription,
             _tasks: tasks,
         };
         workspace.load_saved();
@@ -299,6 +322,7 @@ impl Workspace {
             return;
         }
         let now = Instant::now();
+        let previous = self.agents.get(&event.pane).map(|state| state.status);
         match self.agents.get_mut(&event.pane) {
             Some(state) => {
                 if !state.apply(&event.event, now) {
@@ -311,7 +335,27 @@ impl Workspace {
                     .insert(event.pane, AgentState::new(&event.event, now));
             }
         }
+        self.notify_status(event.pane, previous, cx);
         cx.notify();
+    }
+
+    /// Sends a desktop notification when a session in the background starts
+    /// waiting or finishes.
+    fn notify_status(&self, pane: u64, previous: Option<AgentStatus>, cx: &Context<Self>) {
+        let Some(state) = self.agents.get(&pane) else {
+            return;
+        };
+        let Some(body) = crate::notify::message(previous, state.status, self.window_active) else {
+            return;
+        };
+        let body = match state.status {
+            AgentStatus::Waiting => state.activity.as_deref().unwrap_or(body),
+            _ => body,
+        };
+        let title = self
+            .pane_by_id(pane)
+            .map_or_else(|| "Claude Code".into(), |view| self.pane_title(&view, cx));
+        crate::notify::send(&title, body);
     }
 
     /// Starts a shell with the active account in the directory of the
@@ -391,6 +435,8 @@ impl Workspace {
                 dir: working_directory,
                 account: account.badge.map(SharedString::from),
                 running: None,
+                name: None,
+                split_position: None,
                 _subscription: subscription,
             },
         );
@@ -414,6 +460,49 @@ impl Workspace {
             TerminalViewEvent::Focused => {
                 self.tabs.focus_pane(view);
                 cx.notify();
+            }
+            TerminalViewEvent::OpenLink(link) => self.open_link(view, link, window, cx),
+        }
+    }
+
+    /// Opens a Ctrl+clicked link: URLs in the browser; existing folders in
+    /// the file manager; existing files in the editor (a new tab, at the
+    /// printed line) or, without one, in the default app.
+    fn open_link(
+        &mut self,
+        view: &Pane,
+        link: &term_core::links::Link,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use term_core::links::Link;
+        match link {
+            Link::Url(url) => cx.open_url(url),
+            Link::File { path, line, .. } => {
+                let cwd = view.read(cx).working_directory();
+                let home = std::env::var_os("HOME").map(PathBuf::from);
+                let file = crate::open_link::resolve(path, cwd.as_deref(), home.as_deref());
+                if !file.exists() {
+                    return;
+                }
+                let path_var = std::env::var_os("PATH").unwrap_or_default();
+                let editor = crate::open_link::editor(
+                    std::env::var("VISUAL").ok().as_deref(),
+                    std::env::var("EDITOR").ok().as_deref(),
+                    crate::agents::find_program("nvim", &path_var).is_some(),
+                );
+                match crate::open_link::target(&file, file.is_dir(), editor.as_deref(), *line) {
+                    crate::open_link::Target::Folder(url)
+                    | crate::open_link::Target::DefaultApp(url) => cx.open_url(&url),
+                    crate::open_link::Target::Editor(command) => {
+                        if let Some(pane) = self.spawn_pane(window, cx) {
+                            pane.read(cx).run_command(&command);
+                            self.tabs.open_tab(pane);
+                            self.focus_active(window, cx);
+                            cx.notify();
+                        }
+                    }
+                }
             }
         }
     }
@@ -524,7 +613,33 @@ impl Workspace {
         cx.notify();
     }
 
-    /// Ctrl+Shift+F: show the sidebar and type into its search box.
+    /// Ctrl+= / Ctrl+- / Ctrl+0: font size of every pane, for this run.
+    fn zoom(steps: Option<i32>, window: &mut Window, cx: &mut Context<Self>) {
+        gpui::BorrowAppContext::update_global::<crate::theme::TerminalSettings, _>(
+            cx,
+            |settings, _| {
+                settings.font_size = match steps {
+                    Some(steps) => crate::config::zoom(settings.font_size, steps),
+                    None => settings.base_font_size,
+                };
+            },
+        );
+        window.refresh();
+    }
+
+    /// Ctrl+Shift+F: search the output of the focused pane.
+    fn find_in_terminal(
+        &mut self,
+        _: &FindInTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(pane) = self.tabs.active_pane().cloned() {
+            pane.update(cx, |view, cx| view.open_search(window, cx));
+        }
+    }
+
+    /// Ctrl+Shift+K: show the sidebar and type into its search box.
     fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
         self.sidebar_visible = true;
         self.search.read(cx).focus(window);
@@ -545,7 +660,7 @@ impl Workspace {
                 self.focus_active(window, cx);
             }
             // Enter jumps to the first session found.
-            TextFieldEvent::Submit => {
+            TextFieldEvent::Submit | TextFieldEvent::SubmitBack => {
                 let query = self.search.read(cx).text().to_owned();
                 let first = sidebar::search(self.sidebar_items(cx), &query)
                     .into_iter()
@@ -577,6 +692,13 @@ impl Workspace {
 
     /// Label of a pane: agent topic, program title, or "shell".
     fn pane_title(&self, pane: &Pane, cx: &Context<Self>) -> SharedString {
+        if let Some(name) = self
+            .panes
+            .get(&pane.entity_id())
+            .and_then(|meta| meta.name.clone())
+        {
+            return name;
+        }
         let agent = self
             .panes
             .get(&pane.entity_id())
@@ -661,7 +783,11 @@ impl Workspace {
                         .as_deref()
                         .map_or_else(|| "~".to_owned(), project_name)
                         .into(),
-                    title: session.title.clone().into(),
+                    title: session
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| session.title.clone())
+                        .into(),
                     subtitle: "Saved · click to resume".into(),
                     status: None,
                     elapsed: None,
@@ -709,7 +835,7 @@ impl Workspace {
                 .pt_1()
                 .text_size(px(10.5))
                 .text_color(color(chrome::TEXT_FAINT))
-                .child("Ctrl+Shift+F to search · Enter opens · Esc clears"),
+                .child("Ctrl+Shift+K to search · Enter opens · Esc clears"),
         );
 
         let list = div()
@@ -866,13 +992,17 @@ impl Workspace {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .children(items.into_iter().map(|item| Self::render_item(item, cx))),
+                        .children(items.into_iter().map(|item| self.render_item(item, cx))),
                 )
             })
     }
 
-    fn render_item(item: Item, cx: &mut Context<Self>) -> AnyElement {
+    fn render_item(&self, item: Item, cx: &mut Context<Self>) -> AnyElement {
         let pane = item.pane;
+        let menu_title = item.title.to_string();
+        let title: AnyElement = self
+            .rename_field(pane)
+            .unwrap_or_else(|| item.title.clone().into_any_element());
         let (marker, marker_color) = match item.status {
             Some(AgentStatus::Working) => ("◌", chrome::WORKING),
             Some(AgentStatus::Waiting) => ("●", chrome::WAITING),
@@ -905,7 +1035,7 @@ impl Workspace {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                    this.open_session_menu(pane, event.position, cx);
+                    this.open_session_menu(pane, menu_title.clone(), event.position, cx);
                 }),
             )
             .child(item_marker(
@@ -931,7 +1061,7 @@ impl Workspace {
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .whitespace_nowrap()
-                                    .child(item.title),
+                                    .child(title),
                             )
                             .when_some(item.account, |row, account| {
                                 row.child(
@@ -1054,6 +1184,16 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::switch_account))
             .on_action(cx.listener(Self::focus_search))
+            .on_action(cx.listener(Self::find_in_terminal))
+            .on_action(cx.listener(|_, _: &ZoomIn, window, cx| {
+                Self::zoom(Some(1), window, cx);
+            }))
+            .on_action(cx.listener(|_, _: &ZoomOut, window, cx| {
+                Self::zoom(Some(-1), window, cx);
+            }))
+            .on_action(cx.listener(|_, _: &ZoomReset, window, cx| {
+                Self::zoom(None, window, cx);
+            }))
             .flex()
             .size_full()
             .bg(rgb(chrome::TAB_ACTIVE_BG))
@@ -1074,7 +1214,8 @@ impl Render for Workspace {
             .relative()
             .when_some(self.render_agent_menu(cx), ParentElement::child)
             .when_some(self.render_session_menu(cx), ParentElement::child)
-            .when_some(self.render_accounts(cx), ParentElement::child);
+            .when_some(self.render_accounts(cx), ParentElement::child)
+            .when_some(self.render_settings(cx), ParentElement::child);
         self.frame.render(window, content)
     }
 }

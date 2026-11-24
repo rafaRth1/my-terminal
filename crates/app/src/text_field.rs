@@ -21,6 +21,8 @@ const MAX_DOTS: usize = 24;
 pub enum TextFieldEvent {
     /// Enter: submit the form.
     Submit,
+    /// Shift+Enter: submit backwards (a search goes to the previous match).
+    SubmitBack,
     /// Escape: leave the form.
     Cancel,
     /// Tab: move to the next field.
@@ -78,6 +80,7 @@ impl TextField {
                 }
             }
             Edit::Submit => cx.emit(TextFieldEvent::Submit),
+            Edit::SubmitBack => cx.emit(TextFieldEvent::SubmitBack),
             Edit::Cancel => cx.emit(TextFieldEvent::Cancel),
             Edit::Next => cx.emit(TextFieldEvent::Next),
             Edit::Ignored => return,
@@ -143,6 +146,7 @@ enum Edit {
     Changed,
     Paste,
     Submit,
+    SubmitBack,
     Cancel,
     Next,
     Ignored,
@@ -151,6 +155,7 @@ enum Edit {
 fn edit(text: &mut String, keystroke: &Keystroke) -> Edit {
     let mods = keystroke.modifiers;
     match keystroke.key.as_str() {
+        "enter" if mods.shift => return Edit::SubmitBack,
         "enter" => return Edit::Submit,
         "escape" => return Edit::Cancel,
         "tab" => return Edit::Next,
@@ -239,6 +244,7 @@ mod tests {
     fn control_keys_map_to_actions() {
         let mut text = String::from("x");
         assert_eq!(edit(&mut text, &key("enter")), Edit::Submit);
+        assert_eq!(edit(&mut text, &key("shift-enter")), Edit::SubmitBack);
         assert_eq!(edit(&mut text, &key("escape")), Edit::Cancel);
         assert_eq!(edit(&mut text, &key("tab")), Edit::Next);
         assert_eq!(edit(&mut text, &key("ctrl-v")), Edit::Paste);

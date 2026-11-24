@@ -22,7 +22,9 @@ use term_core::selection;
 use term_core::{Session, TerminalEvent, TerminalSize};
 
 use crate::input::keystroke_to_bytes;
-use crate::theme::{self, FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, PADDING, Theme};
+use crate::theme::{self, FONT_SIZE, LINE_HEIGHT, PADDING, TerminalSettings};
+
+mod search_bar;
 
 /// Notifications for the view's owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,23 +35,28 @@ pub enum TerminalViewEvent {
     Exited,
     /// The user clicked the view; it now has keyboard focus.
     Focused,
+    /// Ctrl+click on a URL or file path.
+    OpenLink(term_core::links::Link),
 }
 
 /// Renders a [`Session`] and sends keyboard input to it.
 pub struct TerminalView {
     session: Session,
     focus: FocusHandle,
-    theme: Theme,
     size: TerminalSize,
     title: Option<SharedString>,
     /// Laid-out bounds of the view, measured during prepaint.
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// Width of one cell at the last render.
     cell_width: Pixels,
+    /// Height of one row at the last render.
+    line_height: Pixels,
     /// Wheel pixels not yet turned into whole lines.
     scroll_px: f32,
     /// A left-button drag is extending the selection.
     selecting: bool,
+    /// Open search bar, with its matches.
+    search: Option<search_bar::SearchBar>,
     _events: Task<()>,
 }
 
@@ -73,20 +80,27 @@ impl TerminalView {
         Self {
             session,
             focus: cx.focus_handle(),
-            theme: Theme::default(),
             size: TerminalSize::default(),
             title: None,
             bounds: Rc::new(Cell::new(None)),
             cell_width: px(FONT_SIZE * 0.6),
+            line_height: px(FONT_SIZE * LINE_HEIGHT),
             scroll_px: 0.0,
             selecting: false,
+            search: None,
             _events: events,
         }
     }
 
     fn on_terminal_event(&mut self, event: TerminalEvent, cx: &mut Context<Self>) {
         match event {
-            TerminalEvent::Wakeup => cx.notify(),
+            TerminalEvent::Wakeup => {
+                // New output shifts the grid: keep the highlights in place.
+                if self.search.is_some() {
+                    self.find(false, cx);
+                }
+                cx.notify();
+            }
             TerminalEvent::Title(title) => {
                 self.title = Some(title.into());
                 cx.emit(TerminalViewEvent::TitleChanged);
@@ -126,7 +140,11 @@ impl TerminalView {
         self.session.working_directory()
     }
 
-    fn on_key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        // Keys typed in the search bar never reach the program.
+        if !self.focus.is_focused(window) {
+            return;
+        }
         let keystroke = &event.keystroke;
         let mods = keystroke.modifiers;
 
@@ -161,7 +179,7 @@ impl TerminalView {
 
     /// Mouse wheel and touchpad: scrollback, arrows, or a mouse report.
     fn on_scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let line_height = FONT_SIZE * LINE_HEIGHT;
+        let line_height = f32::from(self.line_height);
         self.scroll_px += f32::from(event.delta.pixel_delta(px(line_height)).y);
         let lines = take_lines(&mut self.scroll_px, line_height);
         cx.stop_propagation();
@@ -193,8 +211,16 @@ impl TerminalView {
         let x = f32::from(position.x - origin.x) - PADDING;
         let y = f32::from(position.y - origin.y) - PADDING;
         let (column, side) = cell_side(x, f32::from(self.cell_width), self.size.cols);
-        let line = cell_index(y, FONT_SIZE * LINE_HEIGHT, self.size.rows);
+        let line = cell_index(y, f32::from(self.line_height), self.size.rows);
         ((column, line), side)
+    }
+
+    /// The link under viewport cell `(column, row)`.
+    fn link_at(&self, (column, row): (usize, usize)) -> Option<term_core::links::Link> {
+        let term = self.session.term().lock();
+        let offset = i32::try_from(term.grid().display_offset()).ok()?;
+        let line = Line(i32::try_from(row).ok()? - offset);
+        term_core::links::link_at(&*term, GridPoint::new(line, Column(column)))
     }
 
     /// Left press: focus the view and start a selection (one click drags,
@@ -208,6 +234,12 @@ impl TerminalView {
         window.focus(&self.focus);
         cx.emit(TerminalViewEvent::Focused);
         let (cell, side) = self.cell_at(event.position);
+        if event.modifiers.control
+            && let Some(link) = self.link_at(cell)
+        {
+            cx.emit(TerminalViewEvent::OpenLink(link));
+            return;
+        }
         let mut term = self.session.term().lock();
         selection::start(&mut *term, selection::kind(event.click_count), cell, side);
         drop(term);
@@ -277,7 +309,8 @@ impl TerminalView {
     }
 
     /// Builds one styled text element per visible row.
-    fn rows(&self, line_height: Pixels) -> Vec<gpui::Div> {
+    fn rows(&self, line_height: Pixels, settings: &TerminalSettings) -> Vec<gpui::Div> {
+        let theme = &settings.theme;
         let term = self.session.term().lock();
         let colors = term.colors();
         let grid = term.grid();
@@ -287,32 +320,55 @@ impl TerminalView {
             .contains(TermMode::SHOW_CURSOR)
             .then_some(grid.cursor.point);
         let selected = term.selection.as_ref().and_then(|s| s.to_range(&*term));
+        let found = self.search.as_ref().map_or_else(Vec::new, |bar| {
+            term_core::search::segments(
+                &bar.matches,
+                grid.display_offset(),
+                term.screen_lines(),
+                term.columns(),
+            )
+            .into_iter()
+            .map(|segment| (segment, bar.current == Some(segment.index)))
+            .collect()
+        });
 
         (0..term.screen_lines())
             .map(|row| {
                 let line = Line(i32::try_from(row).unwrap_or(0) - offset);
+                let row_found: Vec<_> = found.iter().filter(|(s, _)| s.row == row).collect();
                 let mut builder = RowBuilder::default();
                 for col in 0..term.columns() {
                     let cell = &grid[line][Column(col)];
                     if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
                         continue;
                     }
-                    let mut fg = self.theme.resolve(cell.fg, colors);
-                    let mut bg = self.theme.resolve(cell.bg, colors);
+                    let mut fg = theme.resolve(cell.fg, colors);
+                    let mut bg = theme.resolve(cell.bg, colors);
                     if cell.flags.contains(Flags::INVERSE) {
                         std::mem::swap(&mut fg, &mut bg);
                     }
+                    if let Some((_, current)) = row_found
+                        .iter()
+                        .find(|(s, _)| (s.start..=s.end).contains(&col))
+                    {
+                        if *current {
+                            fg = theme.search_current_fg;
+                            bg = theme.search_current;
+                        } else {
+                            bg = theme.search_match;
+                        }
+                    }
                     if selected.is_some_and(|r| r.contains(GridPoint::new(line, Column(col)))) {
-                        fg = self.theme.foreground;
-                        bg = self.theme.selection;
+                        fg = theme.foreground;
+                        bg = theme.selection;
                     }
                     if cursor.is_some_and(|c| c.line == line && c.column == Column(col)) {
-                        fg = self.theme.background;
-                        bg = self.theme.cursor;
+                        fg = theme.background;
+                        bg = theme.cursor;
                     }
                     let style = CellStyle {
                         fg,
-                        bg: (bg != self.theme.background).then_some(bg),
+                        bg: (bg != theme.background).then_some(bg),
                         bold: cell.flags.contains(Flags::BOLD),
                         italic: cell.flags.contains(Flags::ITALIC),
                         underline: cell.flags.intersects(Flags::ALL_UNDERLINES),
@@ -322,7 +378,7 @@ impl TerminalView {
                 div()
                     .h(line_height)
                     .whitespace_nowrap()
-                    .child(builder.finish())
+                    .child(builder.finish(&settings.font_family))
             })
             .collect()
     }
@@ -336,13 +392,14 @@ impl Focusable for TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let font_size = px(FONT_SIZE);
-        let line_height = px(FONT_SIZE * LINE_HEIGHT);
+        let settings = cx.global::<TerminalSettings>().clone();
+        let font_size = px(settings.font_size);
+        let line_height = px(settings.line_height());
         let text_system = window.text_system();
-        let font_id = text_system.resolve_font(&font(FONT_FAMILY));
+        let font_id = text_system.resolve_font(&font(settings.font_family.clone()));
         let cell_width = text_system
             .advance(font_id, font_size, 'm')
-            .map_or(px(FONT_SIZE * 0.6), |advance| advance.width);
+            .map_or(px(settings.font_size * 0.6), |advance| advance.width);
 
         // Until the first layout, the size comes from the window.
         let area = self
@@ -351,6 +408,7 @@ impl Render for TerminalView {
             .map_or_else(|| window.viewport_size(), |bounds| bounds.size);
         self.fit_to(area, cell_width, line_height);
         self.cell_width = cell_width;
+        self.line_height = line_height;
 
         let measured = Rc::clone(&self.bounds);
         let measure = canvas(
@@ -382,13 +440,14 @@ impl Render for TerminalView {
             .overflow_hidden()
             .size_full()
             .p(px(PADDING))
-            .bg(theme::to_hsla(self.theme.background))
-            .text_color(theme::to_hsla(self.theme.foreground))
-            .font_family(FONT_FAMILY)
+            .bg(theme::to_hsla(settings.theme.background))
+            .text_color(theme::to_hsla(settings.theme.foreground))
+            .font_family(settings.font_family.clone())
             .text_size(font_size)
             .line_height(line_height)
             .child(measure)
-            .children(self.rows(line_height))
+            .children(self.rows(line_height, &settings))
+            .children(self.render_search_bar(cx))
     }
 }
 
@@ -485,12 +544,12 @@ impl RowBuilder {
         }
     }
 
-    fn finish(self) -> StyledText {
+    fn finish(self, family: &SharedString) -> StyledText {
         let runs = self
             .runs
             .into_iter()
             .map(|(len, style)| {
-                let mut run_font = font(FONT_FAMILY);
+                let mut run_font = font(family.clone());
                 if style.bold {
                     run_font.weight = FontWeight::BOLD;
                 }

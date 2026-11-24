@@ -353,7 +353,7 @@ fn file_state(home: &Path, relative: &str) -> SignIn {
 }
 
 /// First executable file named `program` in the directories of `path`.
-fn find_program(program: &str, path: &OsStr) -> Option<PathBuf> {
+pub fn find_program(program: &str, path: &OsStr) -> Option<PathBuf> {
     std::env::split_paths(path)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(program))

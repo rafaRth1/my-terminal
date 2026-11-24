@@ -10,6 +10,8 @@ pub const MIN_PANE_SHARE: f32 = 0.1;
 /// One tab: panes laid out left to right.
 #[derive(Debug)]
 pub struct Tab<P> {
+    /// Stable id, saved with the tab's sessions to restore the split.
+    id: u64,
     panes: Vec<P>,
     /// Share of the tab's width of each pane, in pane order.
     widths: Vec<f32>,
@@ -17,12 +19,17 @@ pub struct Tab<P> {
 }
 
 impl<P> Tab<P> {
-    fn new(pane: P) -> Self {
+    fn new(pane: P, id: u64) -> Self {
         Self {
+            id,
             panes: vec![pane],
             widths: vec![1.0],
             active_pane: 0,
         }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn panes(&self) -> &[P] {
@@ -42,27 +49,29 @@ impl<P> Tab<P> {
 /// Ordered tabs with one active tab.
 #[derive(Debug)]
 pub struct Tabs<P> {
-    tabs: Vec<Tab<P>>,
+    list: Vec<Tab<P>>,
     active: usize,
+    /// Id the next new tab gets.
+    next_id: u64,
 }
 
 impl<P> Default for Tabs<P> {
     fn default() -> Self {
         Self {
-            tabs: Vec::new(),
+            list: Vec::new(),
             active: 0,
+            next_id: 0,
         }
     }
 }
 
 impl<P: PartialEq> Tabs<P> {
     pub fn is_empty(&self) -> bool {
-        self.tabs.is_empty()
+        self.list.is_empty()
     }
 
-    #[cfg(test)]
     pub fn tabs(&self) -> &[Tab<P>] {
-        &self.tabs
+        &self.list
     }
 
     #[cfg(test)]
@@ -71,12 +80,12 @@ impl<P: PartialEq> Tabs<P> {
     }
 
     pub fn active_tab(&self) -> Option<&Tab<P>> {
-        self.tabs.get(self.active)
+        self.list.get(self.active)
     }
 
     /// Every pane of every tab, in display order.
     pub fn all_panes(&self) -> impl Iterator<Item = &P> {
-        self.tabs.iter().flat_map(|tab| tab.panes.iter())
+        self.list.iter().flat_map(|tab| tab.panes.iter())
     }
 
     /// The pane that should hold keyboard focus.
@@ -86,19 +95,72 @@ impl<P: PartialEq> Tabs<P> {
 
     /// Adds a tab after the active one and activates it.
     pub fn open_tab(&mut self, pane: P) {
-        let index = if self.tabs.is_empty() {
+        let id = self.take_id();
+        self.open_tab_with_id(pane, id);
+    }
+
+    /// Like [`Self::open_tab`], with tab id `id` (a restored split); later
+    /// tabs get higher ids.
+    pub fn open_tab_with_id(&mut self, pane: P, id: u64) {
+        self.reserve_ids_through(id);
+        let index = if self.list.is_empty() {
             0
         } else {
             self.active + 1
         };
-        self.tabs.insert(index, Tab::new(pane));
+        self.list.insert(index, Tab::new(pane, id));
         self.active = index;
+    }
+
+    /// New tabs get ids above `id` (saved ids stay free for their splits).
+    pub fn reserve_ids_through(&mut self, id: u64) {
+        self.next_id = self.next_id.max(id.saturating_add(1));
+    }
+
+    /// The next free id (skipping ids in use, wrapping around).
+    fn take_id(&mut self) -> u64 {
+        let mut id = self.next_id;
+        while self.list.iter().any(|tab| tab.id == id) {
+            id = id.wrapping_add(1);
+        }
+        self.next_id = id.wrapping_add(1);
+        id
+    }
+
+    /// Id of the tab holding `pane`.
+    #[cfg(test)]
+    pub fn tab_id(&self, pane: &P) -> Option<u64> {
+        self.find(pane).map(|(tab, _)| self.list[tab].id)
+    }
+
+    /// Puts `pane` at `position` (clamped) in the tab with id `id`, with
+    /// `width` of it (the other panes shrink in proportion), and focuses it.
+    /// Gives the pane back when there is no such tab.
+    pub fn insert_into(&mut self, id: u64, pane: P, position: usize, width: f32) -> Result<(), P> {
+        let Some(index) = self.list.iter().position(|tab| tab.id == id) else {
+            return Err(pane);
+        };
+        let tab = &mut self.list[index];
+        let others = tab.panes.len();
+        #[allow(clippy::cast_precision_loss, reason = "a tab holds a handful of panes")]
+        let max = (1.0 - MIN_PANE_SHARE * others as f32).max(MIN_PANE_SHARE);
+        let width = if width.is_finite() { width } else { 0.5 };
+        let width = width.clamp(MIN_PANE_SHARE, max);
+        for share in &mut tab.widths {
+            *share *= 1.0 - width;
+        }
+        let position = position.min(others);
+        tab.panes.insert(position, pane);
+        tab.widths.insert(position, width);
+        tab.active_pane = position;
+        self.active = index;
+        Ok(())
     }
 
     /// Adds a pane right of the active pane, which gives it half its width,
     /// and activates it. Opens a tab when there is none.
     pub fn split_active(&mut self, pane: P) {
-        let Some(tab) = self.tabs.get_mut(self.active) else {
+        let Some(tab) = self.list.get_mut(self.active) else {
             self.open_tab(pane);
             return;
         };
@@ -113,7 +175,7 @@ impl<P: PartialEq> Tabs<P> {
     /// the active tab) to `at`, a fraction of the tab's width. Only those two
     /// panes change, and neither gets narrower than [`MIN_PANE_SHARE`].
     pub fn move_divider(&mut self, divider: usize, at: f32) {
-        let Some(tab) = self.tabs.get_mut(self.active) else {
+        let Some(tab) = self.list.get_mut(self.active) else {
             return;
         };
         let right = divider + 1;
@@ -153,14 +215,15 @@ impl<P: PartialEq> Tabs<P> {
         let Some((tab_index, _)) = self.find(pane) else {
             return false;
         };
-        if self.tabs[tab_index].panes.len() < 2 {
+        if self.list[tab_index].panes.len() < 2 {
             return false;
         }
         // The tab keeps other panes, so `remove_pane` leaves `active` alone.
         let Some(moved) = self.remove_pane(pane) else {
             return false;
         };
-        self.tabs.insert(tab_index + 1, Tab::new(moved));
+        let id = self.take_id();
+        self.list.insert(tab_index + 1, Tab::new(moved, id));
         if self.active > tab_index {
             self.active += 1;
         }
@@ -170,28 +233,28 @@ impl<P: PartialEq> Tabs<P> {
     /// Activates tab `index`; out-of-range indexes are ignored.
     #[cfg(test)]
     pub fn activate(&mut self, index: usize) {
-        if index < self.tabs.len() {
+        if index < self.list.len() {
             self.active = index;
         }
     }
 
     /// Activates the next tab, wrapping around.
     pub fn next_tab(&mut self) {
-        if !self.tabs.is_empty() {
-            self.active = (self.active + 1) % self.tabs.len();
+        if !self.list.is_empty() {
+            self.active = (self.active + 1) % self.list.len();
         }
     }
 
     /// Activates the previous tab, wrapping around.
     pub fn prev_tab(&mut self) {
-        if !self.tabs.is_empty() {
-            self.active = (self.active + self.tabs.len() - 1) % self.tabs.len();
+        if !self.list.is_empty() {
+            self.active = (self.active + self.list.len() - 1) % self.list.len();
         }
     }
 
     /// Moves focus to the next (`forward`) or previous pane of the active tab.
     pub fn cycle_pane(&mut self, forward: bool) {
-        if let Some(tab) = self.tabs.get_mut(self.active) {
+        if let Some(tab) = self.list.get_mut(self.active) {
             let len = tab.panes.len();
             tab.active_pane = if forward {
                 (tab.active_pane + 1) % len
@@ -205,7 +268,7 @@ impl<P: PartialEq> Tabs<P> {
     pub fn focus_pane(&mut self, pane: &P) {
         if let Some((tab_index, pane_index)) = self.find(pane) {
             self.active = tab_index;
-            self.tabs[tab_index].active_pane = pane_index;
+            self.list[tab_index].active_pane = pane_index;
         }
     }
 
@@ -213,7 +276,7 @@ impl<P: PartialEq> Tabs<P> {
     /// Returns the removed pane, or `None` when it was not found.
     pub fn remove_pane(&mut self, pane: &P) -> Option<P> {
         let (tab_index, pane_index) = self.find(pane)?;
-        let tab = &mut self.tabs[tab_index];
+        let tab = &mut self.list[tab_index];
         let removed = tab.panes.remove(pane_index);
         let width = tab.widths.remove(pane_index);
         // The left neighbor takes the width; the first pane's goes right.
@@ -222,8 +285,8 @@ impl<P: PartialEq> Tabs<P> {
         }
 
         if tab.panes.is_empty() {
-            self.tabs.remove(tab_index);
-            if self.active > tab_index || self.active >= self.tabs.len() {
+            self.list.remove(tab_index);
+            if self.active > tab_index || self.active >= self.list.len() {
                 self.active = self.active.saturating_sub(1);
             }
         } else if tab.active_pane > pane_index || tab.active_pane >= tab.panes.len() {
@@ -234,18 +297,18 @@ impl<P: PartialEq> Tabs<P> {
 
     /// Removes the active tab with all its panes and returns them.
     pub fn close_active_tab(&mut self) -> Vec<P> {
-        if self.tabs.is_empty() {
+        if self.list.is_empty() {
             return Vec::new();
         }
-        let tab = self.tabs.remove(self.active);
-        if self.active >= self.tabs.len() {
+        let tab = self.list.remove(self.active);
+        if self.active >= self.list.len() {
             self.active = self.active.saturating_sub(1);
         }
         tab.panes
     }
 
     fn find(&self, pane: &P) -> Option<(usize, usize)> {
-        self.tabs.iter().enumerate().find_map(|(tab_index, tab)| {
+        self.list.iter().enumerate().find_map(|(tab_index, tab)| {
             tab.panes
                 .iter()
                 .position(|p| p == pane)
@@ -527,5 +590,66 @@ mod tests {
         assert!(!tabs.move_out_of_split(&9));
         assert_eq!(layout(&tabs), vec![vec![1], vec![2]]);
         assert_eq!(tabs.active_pane(), Some(&2));
+    }
+
+    #[test]
+    fn tabs_get_unique_ids() {
+        let mut tabs = Tabs::default();
+        tabs.open_tab(1);
+        tabs.open_tab(2);
+        let (a, b) = (tabs.tab_id(&1).unwrap(), tabs.tab_id(&2).unwrap());
+        assert_ne!(a, b);
+        tabs.split_active(3);
+        assert_eq!(tabs.tab_id(&3), Some(b));
+        assert!(tabs.move_out_of_split(&3));
+        let c = tabs.tab_id(&3).unwrap();
+        assert!(c != a && c != b);
+        assert_eq!(tabs.tab_id(&9), None);
+    }
+
+    #[test]
+    fn open_tab_with_id_keeps_it_and_new_ids_skip_it() {
+        let mut tabs = Tabs::default();
+        tabs.open_tab_with_id(1, 7);
+        assert_eq!(tabs.tab_id(&1), Some(7));
+        tabs.open_tab(2);
+        assert!(tabs.tab_id(&2).unwrap() > 7);
+        tabs.reserve_ids_through(40);
+        tabs.open_tab(3);
+        assert!(tabs.tab_id(&3).unwrap() > 40);
+    }
+
+    #[test]
+    fn insert_into_puts_the_pane_in_place_with_its_width() {
+        let mut tabs = Tabs::default();
+        tabs.open_tab_with_id(1, 3);
+        tabs.open_tab(5);
+        assert_eq!(tabs.insert_into(3, 2, 1, 0.3), Ok(()));
+        assert_eq!(layout(&tabs), vec![vec![1, 2], vec![5]]);
+        // The tab comes to the front, focused on the new pane.
+        assert_eq!(tabs.active_pane(), Some(&2));
+        assert_widths(&tabs, &[0.7, 0.3]);
+        assert_eq!(tabs.insert_into(3, 4, 0, 0.5), Ok(()));
+        assert_eq!(layout(&tabs), vec![vec![4, 1, 2], vec![5]]);
+        assert_widths(&tabs, &[0.5, 0.35, 0.15]);
+        // A position past the end appends; widths stay within limits.
+        assert_eq!(tabs.insert_into(3, 6, 99, 0.99), Ok(()));
+        assert_eq!(layout(&tabs)[0], vec![4, 1, 2, 6]);
+        let widths = widths(&tabs);
+        assert!(
+            (widths.iter().sum::<f32>() - 1.0).abs() < 1e-4,
+            "{widths:?}"
+        );
+        assert!(widths[3] <= 1.0 - 3.0 * MIN_PANE_SHARE + 1e-4, "{widths:?}");
+        // Unknown tab: the pane comes back.
+        assert_eq!(tabs.insert_into(77, 8, 0, 0.5), Err(8));
+    }
+
+    #[test]
+    fn huge_reserved_ids_never_overflow() {
+        let mut tabs = Tabs::default();
+        tabs.open_tab_with_id(1, u64::MAX);
+        tabs.open_tab(2);
+        assert_ne!(tabs.tab_id(&2), Some(u64::MAX));
     }
 }
