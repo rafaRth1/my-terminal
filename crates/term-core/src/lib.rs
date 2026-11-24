@@ -7,7 +7,9 @@
 mod error;
 mod event;
 pub mod keys;
+pub mod links;
 pub mod mouse;
+pub mod search;
 pub mod selection;
 mod session;
 mod size;
