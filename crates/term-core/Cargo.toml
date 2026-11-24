@@ -1,0 +1,14 @@
+[package]
+name = "term-core"
+description = "Headless terminal sessions: PTY + alacritty_terminal grid"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alacritty_terminal.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
