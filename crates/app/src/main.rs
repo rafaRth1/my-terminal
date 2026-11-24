@@ -12,6 +12,7 @@ mod input;
 mod instance;
 mod notify;
 mod open_link;
+mod palette;
 mod saved;
 mod sidebar;
 mod tabs;
