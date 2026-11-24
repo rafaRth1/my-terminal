@@ -1,160 +1,178 @@
 # my-terminal
 
-A lightweight Rust workspace for Claude Code sessions: a real terminal with
-tabs, splits, an agent sidebar and one-click account switching.
+Terminal ligera escrita en Rust para trabajar con sesiones de Claude Code y
+otros agentes CLI: una terminal real con pestañas, paneles divididos, una barra
+lateral de agentes y cambio de cuenta con un clic.
 
-## Layout
+![my-terminal con la barra lateral de sesiones y la barra de agentes](docs/screenshot.png)
+
+## Estructura
 
 ```
 crates/
-  term-core/   Headless terminal sessions: PTY + alacritty_terminal grid. No UI.
-  agent-status/ Claude Code hook events, agent state, socket IPC.
-               Binary `my-terminal-hook` (the hook command).
-  app/         gpui desktop app (binary `my-terminal`): window, sidebar, tabs.
-vendor/        Patched third-party crates; see vendor/README.md.
-odd/tasks/     Feature specs and task log.
+  term-core/    Sesiones de terminal sin interfaz: PTY + grilla de alacritty_terminal.
+  agent-status/ Eventos de los hooks de Claude Code, estado de los agentes, IPC por socket.
+                Binario `my-terminal-hook` (el comando del hook).
+  app/          Aplicación de escritorio con gpui (binario `my-terminal`): ventana,
+                barra lateral, paneles.
+vendor/         Crates de terceros parcheados; ver vendor/README.md.
+odd/tasks/      Especificaciones y registro de tareas.
 ```
 
-`term-core` owns everything that can be tested without a window. The UI crate
-only renders the grid and forwards input, so most behavior stays covered by
-fast headless tests.
+`term-core` contiene todo lo que se puede probar sin ventana. La interfaz solo
+dibuja la grilla y reenvía la entrada, así que la mayor parte del
+comportamiento queda cubierta por tests rápidos sin interfaz gráfica.
 
-## Requirements
+## Requisitos
 
-- Rust 1.85+ (edition 2024)
-- For the UI crate (Ubuntu):
+- Rust 1.85+ (edición 2024)
+- Para la interfaz (Ubuntu):
 
   ```sh
   sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
     libfontconfig-dev libxcb1-dev libx11-xcb-dev libssl-dev clang
   ```
 
-## Run
+## Ejecutar
 
 ```sh
 cargo run --release -p app
 ```
 
-| Shortcut | Action |
+| Atajo | Acción |
 |---|---|
-| `Ctrl+Shift+T` | New tab (opens in the current directory) |
-| `Ctrl+Shift+Q` | Close tab |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PgDn` / `Ctrl+PgUp`) |
-| `Ctrl+Shift+D` | Split right |
-| `Ctrl+Shift+W` | Close pane |
-| `Ctrl+Shift+Right` / `Left` | Focus next / previous pane |
-| `Ctrl+Shift+B` | Show / hide the agent sidebar |
-| `Ctrl+Shift+A` | Switch the Claude account used by new panes |
-| `Ctrl+Shift+F` | Search sessions in the sidebar (Enter opens the first, Esc clears) |
-| `Ctrl+Shift+C` | Copy the selection |
-| `Ctrl+Shift+V` | Paste (bracketed when the program asks) |
+| `Ctrl+Shift+T` | Nueva sesión (se abre en el directorio actual) |
+| `Ctrl+Shift+Q` | Cerrar la pestaña |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Pestaña siguiente / anterior (también `Ctrl+PgDn` / `Ctrl+PgUp`) |
+| `Ctrl+Shift+D` | Dividir a la derecha |
+| `Ctrl+Shift+W` | Cerrar el panel |
+| `Ctrl+Shift+Right` / `Left` | Enfocar el panel siguiente / anterior |
+| `Ctrl+Shift+B` | Mostrar / ocultar la barra lateral |
+| `Ctrl+Shift+A` | Cambiar la cuenta de Claude de los paneles nuevos |
+| `Ctrl+Shift+F` | Buscar sesiones en la barra lateral (Enter abre la primera, Esc limpia) |
+| `Ctrl+Shift+C` | Copiar la selección |
+| `Ctrl+Shift+V` | Pegar (en modo *bracketed* cuando el programa lo pide) |
 
-Mouse: drag to select (double-click selects a word, triple-click a line); the
-selection also goes to the primary selection (middle-click paste in other apps). Typing
-clears it. The wheel or touchpad scrolls the history; in full-screen programs
-it sends arrow keys, or wheel reports when the program tracks the mouse.
+Ratón: arrastrar selecciona texto (doble clic selecciona una palabra, triple
+clic una línea); la selección también va a la selección primaria (pegado con
+clic central en otras aplicaciones). Escribir la borra. La rueda o el touchpad
+recorren el historial; en programas de pantalla completa envía flechas, o
+eventos de rueda si el programa sigue el ratón.
 
-Sessions are listed in the sidebar only; the title bar has no tabs. Splits
-are vertical: panes sit side by side, and every session shown in the split is
-highlighted in the sidebar. Right-click a session in the sidebar:
+Las sesiones se listan solo en la barra lateral; la barra de título no tiene
+pestañas. Las divisiones son verticales: los paneles quedan lado a lado y cada
+sesión visible en la división aparece resaltada en la barra lateral. Clic
+derecho sobre una sesión de la barra lateral:
 
-- **Add to split** (a session not on screen): moves it next to the focused
-  pane.
-- **Remove from split** (a session in a split of two or more): moves it to
-  its own tab; it keeps running and stays in the sidebar.
+- **Add to split** (una sesión que no está en pantalla): la mueve junto al
+  panel enfocado.
+- **Remove from split** (una sesión en una división de dos o más paneles): la
+  mueve a su propia pestaña; sigue ejecutándose y permanece en la barra
+  lateral.
 
-The buttons at the right of the title bar split the focused pane to the right
-(it gives the new pane half its width) and, in a split, remove the focused
-pane from it. `Ctrl+Shift+W` still closes the focused pane and ends its
-session. Drag the line between two panes to resize them; no pane gets
-narrower than a tenth of the window. Click a pane to focus it; with several
-panes, a blue line marks the focused one.
+Los botones a la derecha de la barra de título dividen el panel enfocado hacia
+la derecha (el nuevo panel recibe la mitad de su ancho) y, en una división,
+sacan de ella el panel enfocado. `Ctrl+Shift+W` sigue cerrando el panel
+enfocado y termina su sesión. Arrastrar la línea entre dos paneles cambia su
+tamaño; ningún panel queda más angosto que una décima parte de la ventana. Un
+clic en un panel lo enfoca; con varios paneles, una línea azul marca el
+enfocado.
 
-Drag the empty title bar to move the window; double-click it to maximize.
+Arrastrar el espacio vacío de la barra de título mueve la ventana; doble clic
+la maximiza.
 
-## Agent bar
+## Barra de agentes
 
-The row of icons at the bottom of the sidebar shows Claude Code, Codex, Gemini
-CLI, Qwen Code, OpenCode and Antigravity CLI (`agy`). A green dot means the CLI has saved credentials
-(a gray dot: signed out); a dimmed icon means it is not on `PATH`.
+La fila de íconos al pie de la barra lateral muestra Claude Code, Codex,
+Gemini CLI, Qwen Code, OpenCode y Antigravity CLI (`agy`). Un punto verde
+indica que la CLI tiene credenciales guardadas (punto gris: sesión cerrada); un
+ícono atenuado indica que no está en el `PATH`.
 
-- Click: start the agent in a new tab, or run its sign-in when it is signed
-  out. On Claude Code, open the accounts dialog (see below). On a dimmed
-  icon, open its install page in the browser.
-- Right-click: menu with **Open**, **Sign in** (useful when saved credentials
-  expired) and **Install or repair**, which opens the official install page.
+- Clic: inicia el agente en una pestaña nueva, o su inicio de sesión si la
+  sesión está cerrada. En Claude Code abre el diálogo de cuentas (ver más
+  abajo). En un ícono atenuado abre su página de instalación en el navegador.
+- Clic derecho: menú con **Open**, **Sign in** (útil cuando las credenciales
+  guardadas vencieron) e **Install or repair**, que abre la página oficial de
+  instalación.
 
-my-terminal never reads or stores agent credentials: it runs each CLI's own
-status command (`claude auth status`, `codex login status`,
-`opencode auth list`) or checks that its credentials file exists
-(`~/.gemini/oauth_creds.json`, `~/.qwen/oauth_creds.json`). Antigravity CLI
-has no status command, so its icon shows no dot; it signs in during its first run. The states are
-checked at start, every 5 minutes, and whenever a tab closes.
+my-terminal nunca lee ni guarda credenciales de los agentes: ejecuta el
+comando de estado de cada CLI (`claude auth status`, `codex login status`,
+`opencode auth list`) o comprueba que exista su archivo de credenciales
+(`~/.gemini/oauth_creds.json`, `~/.qwen/oauth_creds.json`). Antigravity CLI no
+tiene comando de estado, así que su ícono no muestra punto; inicia sesión en su
+primera ejecución. Los estados se comprueban al iniciar, cada 5 minutos y cada
+vez que se cierra una pestaña.
 
-A Claude Code session is titled like in Claude's own session list: the latest
-title Claude wrote to its transcript (`custom-title`), or its first prompt
-until there is one. That title is also what saved sessions show.
+Una sesión de Claude Code se titula igual que en la lista de sesiones de
+Claude: el último título que Claude escribió en su transcripción
+(`custom-title`), o su primer prompt mientras no haya uno. Ese título es
+también el que muestran las sesiones guardadas.
 
-In the session list, a pane running one of these agents shows its logo and
-name (found by looking at the processes under the pane's shell every 2
-seconds), in the brand color. Claude Code panes add a status dot on the logo:
-working (blue), waiting (yellow), done (green). The search box above the
-filters keeps the sessions whose title, activity or project contain every word.
+En la lista de sesiones, un panel que ejecuta uno de estos agentes muestra su
+logo y nombre en el color de la marca (se detecta revisando los procesos bajo
+el shell del panel cada 2 segundos). Los paneles de Claude Code agregan un
+punto de estado sobre el logo: trabajando (azul), esperando (amarillo),
+terminado (verde). El buscador sobre los filtros conserva las sesiones cuyo
+título, actividad o proyecto contienen todas las palabras.
 
-## Saved sessions
+## Sesiones guardadas
 
-Agent sessions (Claude Code, Codex, Gemini, ...) are saved whenever they
-change, to `$XDG_STATE_HOME/my-terminal/sessions.json` (default
-`~/.local/state/my-terminal/`, file mode 0600): title, folder, agent, account
-and, for Claude Code, its session id. Plain shells are not saved.
+Las sesiones de agentes (Claude Code, Codex, Gemini, ...) se guardan cada vez
+que cambian en `$XDG_STATE_HOME/my-terminal/sessions.json` (por defecto
+`~/.local/state/my-terminal/`, permisos 0600): título, carpeta, agente, cuenta
+y, para Claude Code, su id de sesión. Los shells sin agente no se guardan.
 
-At the next start they show in the sidebar dimmed, as **Saved · click to
-resume**, and nothing runs until you click one: then a tab opens in its
-folder with its account and runs `claude --resume <id>` (Claude Code gets its
-whole conversation back from its own history) or starts the other agent
-fresh. A shell's screen and running commands cannot come back.
-Right-click a saved session and choose **Forget session** to drop it.
+Al siguiente inicio aparecen atenuadas en la barra lateral, como **Saved ·
+click to resume**, y nada se ejecuta hasta hacer clic en una: entonces se abre
+una pestaña en su carpeta, con su cuenta, que ejecuta `claude --resume <id>`
+(Claude Code recupera la conversación completa desde su propio historial) o
+inicia de cero el otro agente. La pantalla de un shell y los comandos en curso
+no se pueden recuperar. Clic derecho sobre una sesión guardada y **Forget
+session** la elimina.
 
-Click a project name in the sidebar to collapse or expand its group; the
-choice is saved too. Searching shows matches in collapsed groups as well.
+Un clic en el nombre de un proyecto de la barra lateral pliega o despliega su
+grupo; esa elección también se guarda. La búsqueda muestra coincidencias
+también en grupos plegados.
 
-When my-terminal itself is started from inside a Claude Code session, the
-shells it opens do not inherit that session's `CLAUDECODE` and `CLAUDE_*`
-variables (except `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`), so
-Claude Code in them saves its history normally.
+Cuando my-terminal se inicia desde una sesión de Claude Code, los shells que
+abre no heredan las variables `CLAUDECODE` y `CLAUDE_*` de esa sesión (excepto
+`CLAUDE_CONFIG_DIR` y `CLAUDE_CODE_OAUTH_TOKEN`), así Claude Code guarda su
+historial con normalidad dentro de ellos.
 
-## Claude accounts
+## Cuentas de Claude
 
-Click the Claude Code icon in the agent bar to open the accounts dialog (its
-tooltip names the active account). New panes start with the active account;
-running panes keep theirs. `Ctrl+Shift+A` cycles through the accounts without
-opening the dialog.
+Un clic en el ícono de Claude Code de la barra de agentes abre el diálogo de
+cuentas (su tooltip indica la cuenta activa). Los paneles nuevos usan la cuenta
+activa; los que ya están abiertos conservan la suya. `Ctrl+Shift+A` recorre las
+cuentas sin abrir el diálogo.
 
-- **Open** (or `Enter` for the active one): start Claude in a new tab with
-  that account, which also becomes the active account.
-- **Default** uses the login stored by `claude` itself (`/login`); its
-  **Sign in** runs `claude auth login` in a new tab.
-- **Add account**: enter a name, click **Open claude setup-token** (a tab runs
-  it on the default login), sign in with the other account in the browser,
-  copy the printed token (select it, `Ctrl+Shift+C`), click the Claude icon again and
-  paste it with `Ctrl+V`. The token field only shows dots.
-- **Rename** / **Remove** act on the token file; removing never touches panes
-  that are already running.
+- **Open** (o `Enter` para la activa): inicia Claude en una pestaña nueva con
+  esa cuenta, que pasa a ser la cuenta activa.
+- **Default** usa el inicio de sesión que guarda `claude` (`/login`); su
+  botón **Sign in** ejecuta `claude auth login` en una pestaña nueva.
+- **Add account**: escribir un nombre, hacer clic en **Open claude
+  setup-token** (una pestaña lo ejecuta con el inicio de sesión por defecto),
+  iniciar sesión con la otra cuenta en el navegador, copiar el token que
+  imprime (seleccionarlo, `Ctrl+Shift+C`), volver a hacer clic en el ícono de
+  Claude y pegarlo con `Ctrl+V`. El campo del token solo muestra puntos.
+- **Rename** / **Remove** actúan sobre el archivo del token; eliminar una
+  cuenta nunca afecta a los paneles que ya están abiertos.
 
-Each extra account is a file `<name>.token` (mode 0600) in
-`$XDG_CONFIG_HOME/my-terminal/accounts` (default `~/.config/...`, mode 0700).
-Panes started with it get the token as `CLAUDE_CODE_OAUTH_TOKEN`. Files that
-group or others can read are ignored.
+Cada cuenta adicional es un archivo `<nombre>.token` (permisos 0600) en
+`$XDG_CONFIG_HOME/my-terminal/accounts` (por defecto `~/.config/...`, permisos
+0700). Los paneles iniciados con ella reciben el token como
+`CLAUDE_CODE_OAUTH_TOKEN`. Se ignoran los archivos que el grupo u otros
+usuarios pueden leer.
 
-## Agent sidebar
+## Estado de los agentes en la barra lateral
 
-Every pane exports `MY_TERMINAL_PANE` and `MY_TERMINAL_SOCKET`. Claude Code
-hooks call `my-terminal-hook`, which forwards the event to the app over a Unix
-socket in `$XDG_RUNTIME_DIR` (mode 0700). Outside my-terminal the hook does
-nothing; it always exits 0 and prints nothing.
+Cada panel exporta `MY_TERMINAL_PANE` y `MY_TERMINAL_SOCKET`. Los hooks de
+Claude Code llaman a `my-terminal-hook`, que reenvía el evento a la aplicación
+por un socket Unix en `$XDG_RUNTIME_DIR` (permisos 0700). Fuera de my-terminal
+el hook no hace nada; siempre termina con código 0 y no imprime nada.
 
-Register it for these events in `~/.claude/settings.json` (append to existing
-hooks, do not replace them):
+Registrarlo para estos eventos en `~/.claude/settings.json` (agregar a los
+hooks existentes, sin reemplazarlos):
 
 ```json
 {
@@ -169,9 +187,9 @@ hooks, do not replace them):
 }
 ```
 
-Install the binary with `cargo install --path crates/agent-status`.
+Instalar el binario con `cargo install --path crates/agent-status`.
 
-## Development
+## Desarrollo
 
 ```sh
 cargo test --workspace
@@ -179,11 +197,12 @@ cargo clippy --workspace --all-targets
 cargo fmt --all --check
 ```
 
-## Known limitations
+## Limitaciones conocidas
 
-- Not yet: text selection, mouse-wheel scrollback, resizing
-  the window from its edges (see `odd/tasks/terminal-mvp.md`).
-
-- A program that prints and exits within milliseconds can lose its last
-  output on Linux: the PTY reports `EIO` before the kernel flushes its
-  buffer. Long-running programs (shells, `claude`) are not affected.
+- Dos ventanas abiertas al mismo tiempo escriben el mismo `sessions.json`; la
+  última en guardar pisa a la otra.
+- La disposición de los paneles divididos no se restaura: cada sesión
+  reanudada se abre en su propia pestaña.
+- Un programa que imprime y termina en milisegundos puede perder su última
+  salida en Linux: el PTY informa `EIO` antes de que el kernel vacíe su búfer.
+  Los programas de larga duración (shells, `claude`) no se ven afectados.
